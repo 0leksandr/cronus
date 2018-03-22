@@ -1,0 +1,5 @@
+# mon dom dow h m s command
+* * * * */15 0 echo 15m     >> __sandbox/sandbox #1511126106
+* * * 22 15 00 echo 22:30_2 >> __sandbox/sandbox #1511122500
+* * * * * */15 echo 15s     >> __sandbox/sandbox #1511126115
+* * * * * */5  echo 5s      >> __sandbox/sandbox #1511126115
