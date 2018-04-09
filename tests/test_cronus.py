@@ -85,9 +85,10 @@ class TestCronus(unittest.TestCase):
             })
             self.__change_file([2], ['* * * * * */5  echo 5s      >> __sandbox/sandbox'])
             self.__assert_events({
-                '2017-11-18 22:15:20': (['5s'], ['5s']),
+                '2017-11-18 22:15:20': ([], ['5s']),
                 '2017-11-18 22:15:25': ([], ['5s']),
                 '2017-11-18 22:15:30': ([], ['15s', '5s']),
+                '2017-11-18 22:15:36': (['5s'], []),
                 # sleep
                 '2017-11-19 22:14:44': (['15m', '15s', '5s'], []),
                 '2017-11-19 22:14:45': ([], ['15s', '5s']),
@@ -95,12 +96,12 @@ class TestCronus(unittest.TestCase):
                 '2017-11-19 22:14:55': ([], ['5s']),
                 '2017-11-19 22:15:00': ([], ['15m', '22:30_2', '15s', '5s']),
                 '2017-11-19 22:15:05': ([], ['5s']),
+                # reboot
                 '2017-11-19 23:15:06': ('reboot', ['15m', '15s', '5s']),
                 '2017-11-19 23:15:10': ([], ['5s']),
                 '2017-11-19 23:15:15': ([], ['15s', '5s']),
             })
             self.__stop()
-            print(self.__read_lines(crontab))
             assert self.__read_lines(crontab) == self.__read_lines(sandbox_dir + '/crontab_end')
         finally:
             self.__stop()

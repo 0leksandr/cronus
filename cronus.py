@@ -30,6 +30,7 @@ import sys
 # todo: check tasks to be unique?
 # todo: fix overwriting from 22:15 to 21:45 at 22:00 (task should be executed)
 # todo: why huge CPU load for XLS file, that is already open?
+# todo: test daylight saving time
 # external
 # todo: remove time workaround when freezegun is fixed
 # todo: push unittest-data-provider
@@ -68,7 +69,7 @@ class Task:
                  minutes: str,
                  seconds: str,
                  _command: str,
-                 _last_call: str = None):
+                 _last_call: datetime):
         self.__original_string = original_string
         self.__months = self.__values(months, 1, 12)
         self.__days = self.__values(days, 1, 31)
@@ -80,12 +81,12 @@ class Task:
         self.__minutes = self.__values(minutes, 0, 59)
         self.__seconds = self.__values(seconds, 0, 59)
         self.__command = _command
-        self.__last_call = datetime.fromtimestamp(int(_last_call)) if _last_call else None
+        self.__last_call = _last_call
         self.__running = False
-        self.__expected_last_call(datetime(3000, 1, 1))  # check if it may ever be called
+        self.__expected_last_call(datetime(3000, 1, 1))  # todo: check if it may ever be called
 
     @staticmethod
-    def from_string(string: str):
+    def from_string(string: str, now: datetime):
         global pattern, beginning, comment, last_call, end
 
         if re.match(beginning + comment, string) or re.match(beginning + end, string):
@@ -100,32 +101,30 @@ class Task:
         _last_call = re.search('^(.+)' + last_call + end, string)
         if _last_call:
             string = _last_call.group(1)
-            _last_call = _last_call.group(2)
+            _last_call = datetime.fromtimestamp(int(_last_call.group(2)))
         else:
             string = re.match('(.*)' + end, string).group(1)
-        return Task(*([string] + [group.strip() for group
-                      in list(groups[:-1]) + [_last_call] if group]))
+            _last_call = now
+        return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [_last_call]))
 
     def __str__(self) -> str:
         global last_call, end
 
         string = self.__original_string
-        if self.__last_call:
-            match = re.search('^(.*)' + last_call + end, string) \
-                    or re.search('^(.*)' + end, string)
-            if match:
-                string = match.group(1) + ' #' + str(int(self.__last_call.timestamp()))
-            else:
-                raise Exception
+        match = re.search('^(.*)' + last_call + end, string) \
+            or re.search('^(.*)' + end, string)
+        if match:
+            string = match.group(1) + ' #' + str(int(self.__last_call.timestamp()))
+        else:
+            raise Exception
         return string
 
     def skipped(self, now: datetime) -> bool:
-        return self.__last_call and self.__last_call < self.__expected_last_call(now)
+        return self.__last_call < self.__expected_last_call(now)
 
     def calls(self, _from: datetime, _to: datetime) -> List[datetime]:
         _calls = []
-        if self.__last_call:
-            _from = max(_from, self.__last_call + timedelta(microseconds=1))
+        _from = max(_from, self.__last_call + timedelta(microseconds=1))
         year = self.__year_start(_from)
         while True:
             for month in self.__months:  # todo: refactor
@@ -282,8 +281,8 @@ class Cronus:
 
     def run(self, filename: str) -> None:
         self.__filename = filename
-        self.__read()
         self.__time = self.__clock.time()
+        self.__read()
         self.__checkpoint = self.__last_checkpoint()
         self.__run_skipped()
         self.__main_activity()
@@ -296,7 +295,7 @@ class Cronus:
         for task_id in range(len(self.__lines)):
             task = None
             try:
-                task = Task.from_string(self.__lines[task_id])
+                task = Task.from_string(self.__lines[task_id], self.__time)
             except Exception as exception:
                 alert(exception)
             if task:
