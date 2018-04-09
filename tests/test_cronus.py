@@ -100,6 +100,10 @@ class TestCronus(unittest.TestCase):
                 '2017-11-19 23:15:06': ('reboot', ['15m', '15s', '5s']),
                 '2017-11-19 23:15:10': ([], ['5s']),
                 '2017-11-19 23:15:15': ([], ['15s', '5s']),
+                # reboot
+                '2018-04-09 17:48:06': ('reboot', ['15m', '22:30_2', '15s', '5s']),
+                # reboot
+                '2018-04-09 17:48:07': ('reboot', []),
             })
             self.__stop()
             assert self.__read_lines(crontab) == self.__read_lines(sandbox_dir + '/crontab_end')

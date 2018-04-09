@@ -25,7 +25,7 @@ import sys
 # + todo: support for "-"
 # + todo: test changing file
 # + todo: fast recover after reboot
-# todo: fix (and test) hard reboot
+# + todo: fix (and test) hard reboot
 # todo: better track/check file change (akelpad)
 # todo: check tasks to be unique?
 # todo: fix overwriting from 22:15 to 21:45 at 22:00 (task should be executed)
