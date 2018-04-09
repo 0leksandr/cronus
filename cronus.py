@@ -26,8 +26,10 @@ import sys
 # + todo: test changing file
 # + todo: fast recover after reboot
 # todo: fix (and test) hard reboot
+# todo: better track/check file change (akelpad)
 # todo: check tasks to be unique?
 # todo: fix overwriting from 22:15 to 21:45 at 22:00 (task should be executed)
+# todo: why huge CPU load for XLS file, that is already open?
 # external
 # todo: remove time workaround when freezegun is fixed
 # todo: push unittest-data-provider
@@ -122,6 +124,8 @@ class Task:
 
     def calls(self, _from: datetime, _to: datetime) -> List[datetime]:
         _calls = []
+        if self.__last_call:
+            _from = max(_from, self.__last_call + timedelta(microseconds=1))
         year = self.__year_start(_from)
         while True:
             for month in self.__months:  # todo: refactor
