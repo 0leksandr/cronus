@@ -7,7 +7,7 @@ from dateutil.parser import parse
 # import sys
 # import os
 # sys.path.append(os.path.abspath(".."))
-from cronus import Task
+from cronus import Task, Clock
 
 
 class TestTask(unittest.TestCase):
@@ -149,16 +149,16 @@ class TestTask(unittest.TestCase):
 
     @data_provider(correct_strings)
     def test_creating_from_correct_string(self, string: str):
-        assert Task.from_string(string) is not None
+        assert Task.from_string(string, Clock().time()) is not None
 
     @data_provider(empty_strings)
     def test_not_creating_from_empty_string(self, string: str):
-        assert Task.from_string(string) is None
+        assert Task.from_string(string, Clock().time()) is None
 
     @data_provider(incorrect_strings)
     def test_throwing_exception_on_incorrect_string(self, string: str):
         with self.assertRaises(Exception):
-            Task.from_string(string)
+            Task.from_string(string, Clock().time())
 
     @data_provider(skipped_provider)
     def test_skipped(self, task: str, now: str, expected_last_call: str):
@@ -178,7 +178,7 @@ class TestTask(unittest.TestCase):
 
     @data_provider(time_provider)
     def test_converting_to_string(self, original: str, expected: str, _datetime: datetime = None):
-        task = Task.from_string(original)
+        task = Task.from_string(original, Clock().time())
         if _datetime:
             # with freeze_time(_datetime):
             task.execute(_datetime)
@@ -190,4 +190,4 @@ class TestTask(unittest.TestCase):
             string += ' ' + self.__command
         if last_call:
             string += ' #' + str(int(last_call.timestamp()))
-        return Task.from_string(string)
+        return Task.from_string(string, parse('1970-01-01 03:00:00'))

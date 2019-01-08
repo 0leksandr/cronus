@@ -6,6 +6,7 @@ import threading
 import time
 import os
 from typing import List
+import re
 
 from cronus import Cronus, Clock
 
@@ -67,7 +68,7 @@ class TestCronus(unittest.TestCase):
             self.__set_time(self.__parse_time('2017-11-18 13:33:02'))
             self.__run_daemon_thread()
             self.__assert_events({
-                '2017-11-18 13:33:03': (['22:30_2'], []),
+                '2017-11-18 13:33:03': (['22:15_2'], []),
                 '2017-11-18 13:33:05': ([], []),
                 '2017-11-18 13:33:10': ([], []),
                 '2017-11-18 13:33:15': ([], ['15s']),
@@ -80,9 +81,10 @@ class TestCronus(unittest.TestCase):
                 '2017-11-18 13:45:15': ([], ['15s']),
                 # sleep
                 '2017-11-18 22:14:45': (['15m', '15s'], ['15s']),
-                '2017-11-18 22:15:00': ([], ['15m', '22:30_1', '22:30_2', '15s']),
+                '2017-11-18 22:15:00': ([], ['15m', '22:15_1', '22:15_2', '15s']),
                 '2017-11-18 22:15:15': ([], ['15s']),
             })
+            self.__set_time(self.__parse_time('2017-11-18 22:15:16'))
             self.__change_file([2], ['* * * * * */5  echo 5s      >> __sandbox/sandbox'])
             self.__assert_events({
                 '2017-11-18 22:15:20': ([], ['5s']),
@@ -94,16 +96,26 @@ class TestCronus(unittest.TestCase):
                 '2017-11-19 22:14:45': ([], ['15s', '5s']),
                 '2017-11-19 22:14:50': ([], ['5s']),
                 '2017-11-19 22:14:55': ([], ['5s']),
-                '2017-11-19 22:15:00': ([], ['15m', '22:30_2', '15s', '5s']),
+                '2017-11-19 22:15:00': ([], ['15m', '22:15_2', '15s', '5s']),
                 '2017-11-19 22:15:05': ([], ['5s']),
                 # reboot
                 '2017-11-19 23:15:06': ('reboot', ['15m', '15s', '5s']),
                 '2017-11-19 23:15:10': ([], ['5s']),
                 '2017-11-19 23:15:15': ([], ['15s', '5s']),
                 # reboot
-                '2018-04-09 17:48:06': ('reboot', ['15m', '22:30_2', '15s', '5s']),
+                '2018-04-09 17:48:06': ('reboot', ['15m', '22:15_2', '15s', '5s']),
                 # reboot
                 '2018-04-09 17:48:07': ('reboot', []),
+                # sleep
+                '2018-04-09 22:00:00': (['15m', '15s', '5s'], ['15m', '15s', '5s']),
+            })
+
+            lines = self.__read_lines(crontab)
+            lines[2] = re.sub('22 15', '21 45', lines[2])
+            self.__write(crontab, lines)
+
+            self.__assert_events({
+                '2018-04-09 22:00:01': (['22:15_2'], []),
             })
             self.__stop()
             assert self.__read_lines(crontab) == self.__read_lines(sandbox_dir + '/crontab_end')

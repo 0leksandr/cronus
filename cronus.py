@@ -7,28 +7,11 @@ from typing import List, Tuple
 import os
 import sys
 
-# + todo: watch file (and reload on changes)
-# + todo: somehow alert about errors
-# + todo: test task skipped (and last expected call)
-# + todo: test task calls
-# + todo: test task to string
-# + todo: test cronus
-# + todo: smart checkpoint (every 5th minute)
-# + todo: put crontab file into correct location
-# + todo: support for ","
-# + todo: move week_start to Task
-# + todo: cleanup Task
-# + todo: support dom
-# + todo: support month
-# + todo: check is not only incorrect dates ('4 31 * * * *')
-# + todo: check values for empty ('*/13 * * * * *')
-# + todo: support for "-"
-# + todo: test changing file
-# + todo: fast recover after reboot
-# + todo: fix (and test) hard reboot
 # todo: better track/check file change (akelpad)
 # todo: check tasks to be unique?
 # todo: fix overwriting from 22:15 to 21:45 at 22:00 (task should be executed)
+# todo: save checkpoint is task was just executed, and next one is later then (next checkpoint)?
+# todo: support for specific dates
 # todo: why huge CPU load for XLS file, that is already open?
 # todo: test daylight saving time
 # external
@@ -59,7 +42,7 @@ class Clock:
         return datetime.now()
 
 
-class Task:
+class Task:  # TODO: use `Clock` instead of passing `datetime` everywhere
     def __init__(self,
                  original_string: str,
                  months: str,
@@ -69,7 +52,8 @@ class Task:
                  minutes: str,
                  seconds: str,
                  _command: str,
-                 _last_call: datetime):
+                 creation_time: datetime,
+                 _last_call: datetime = None):
         self.__original_string = original_string
         self.__months = self.__values(months, 1, 12)
         self.__days = self.__values(days, 1, 31)
@@ -81,6 +65,7 @@ class Task:
         self.__minutes = self.__values(minutes, 0, 59)
         self.__seconds = self.__values(seconds, 0, 59)
         self.__command = _command
+        self.__creation_time = creation_time
         self.__last_call = _last_call
         self.__running = False
         self.__expected_last_call(datetime(3000, 1, 1))  # todo: check if it may ever be called
@@ -104,8 +89,8 @@ class Task:
             _last_call = datetime.fromtimestamp(int(_last_call.group(2)))
         else:
             string = re.match('(.*)' + end, string).group(1)
-            _last_call = now
-        return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [_last_call]))
+            _last_call = None
+        return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [now, _last_call]))
 
     def __str__(self) -> str:
         global last_call, end
@@ -113,18 +98,20 @@ class Task:
         string = self.__original_string
         match = re.search('^(.*)' + last_call + end, string) \
             or re.search('^(.*)' + end, string)
-        if match:
-            string = match.group(1) + ' #' + str(int(self.__last_call.timestamp()))
-        else:
+        if not match:
             raise Exception
+        string = match.group(1)
+        if self.__last_call:
+            string += ' #' + str(int(self.__last_call.timestamp()))
         return string
 
     def skipped(self, now: datetime) -> bool:
-        return self.__last_call < self.__expected_last_call(now)
+        __last_call = self.__last_call if self.__last_call else self.__creation_time
+        return __last_call < self.__expected_last_call(now)
 
     def calls(self, _from: datetime, _to: datetime) -> List[datetime]:
         _calls = []
-        _from = max(_from, self.__last_call + timedelta(microseconds=1))
+        _from = max(_from, self.__last_call + timedelta(microseconds=1)) if self.__last_call else _from
         year = self.__year_start(_from)
         while True:
             for month in self.__months:  # todo: refactor
@@ -281,10 +268,9 @@ class Cronus:
 
     def run(self, filename: str) -> None:
         self.__filename = filename
-        self.__time = self.__clock.time()
+        self.__update_time()
         self.__read()
         self.__checkpoint = self.__last_checkpoint()
-        self.__run_skipped()
         self.__main_activity()
 
     def __read(self) -> None:
@@ -315,6 +301,8 @@ class Cronus:
             self.__checkpoint = self.__time
 
     def __main_activity(self) -> None:
+        self.__update_time()
+        self.__run_skipped()
         self.__next_events = []
         tasks = {}
         try:
@@ -336,8 +324,6 @@ class Cronus:
                         self.__tasks[task_id] = old_task
             self.__main_activity()
         except WakeUpException:
-            self.__time = self.__clock.time()
-            self.__run_skipped()
             self.__main_activity()
 
     def __run_skipped(self) -> None:
@@ -398,6 +384,9 @@ class Cronus:
     def __check_file(self) -> None:
         if os.path.getmtime(self.__filename) != self.__mtime:
             raise FileChangedException
+
+    def __update_time(self) -> None:
+        self.__time = self.__clock.time()
 
 
 if __name__ == '__main__':
