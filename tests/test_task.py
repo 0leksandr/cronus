@@ -10,6 +10,14 @@ from dateutil.parser import parse
 from cronus import Task, Clock
 
 
+class MockClock(Clock):
+    def __init__(self, time: datetime):
+        self.__time = time
+
+    def time(self):
+        return self.__time
+
+
 class TestTask(unittest.TestCase):
     __command = 'echo > /dev/null'
 
@@ -108,22 +116,26 @@ class TestTask(unittest.TestCase):
                         ('1 1 1 0 0 0',       '2017-11-19',       '2007-01-01'))
 
     calls_provider = [
-        ('* * * 22 30 00', '2017-11-16', '2017-11-17', {0: '2017-11-16 22:30'}),
+        ('* * * 22 30 00', None, '2017-11-16', '2017-11-17', {0: '2017-11-16 22:30'}),
         ('* * */2 03 2 *',
+         None,
          '2017-11-16',
          '2017-11-30 12:02',
          {0: '2017-11-16 03:02:00', 59: '2017-11-16 03:02:59', 60: '2017-11-18 03:02:00',
           119: '2017-11-18 03:02:59', 120: '2017-11-21 03:02:00', 419: '2017-11-30 03:02:59'}),
-        ('* * * * * *', '2018-12-31 23:59:59', '2018-01-01 00:00:00', {}),
+        ('* * * * * *', None, '2018-12-31 23:59:59', '2018-01-01 00:00:00', {}),
         ('* * * 22 15 00',
+         None,
          '2017-11-19 10:17:45.194909',
          '2017-11-20 10:17:45.194909',
          {0: '2017-11-19 22:15'}),
         ('* * * * * *',
+         None,
          '2017-11-19 12:43:25',
          '2017-11-19 12:43:30',
          {0: '2017-11-19 12:43:25', 4: '2017-11-19 12:43:29'}),
         ('* * 5,6,7 * 0,3 0',
+         None,
          '2017-11-19 13:19:15',
          '2017-11-26 13:19:15',
          {0: '2017-11-19 14:00', 1: '2017-11-19 14:03', 2: '2017-11-19 15:00',
@@ -131,10 +143,16 @@ class TestTask(unittest.TestCase):
           22: '2017-11-24 01:00', 67: '2017-11-24 23:03', 68: '2017-11-25 00:00',
           115: '2017-11-25 23:03', 116: '2017-11-26 00:00', 143: '2017-11-26 13:03'}),
         ('* */10 1 0 0 0',
+         None,
          '2017-01-01',
          '2018-01-01',
          {0: '2017-01-30', 1: '2017-02-20', 2: '2017-03-20', 3: '2017-04-10', 4: '2017-07-10',
           5: '2017-10-30', 6: '2017-11-20'}),
+        ('* * * * * *',
+         '2019-04-12 03:23:00',
+         '2019-04-12 03:22',
+         '2019-04-12 03:24',
+         {0: '2019-04-12 03:23:01', 58: '2019-04-12 03:23:59'}),
     ]
 
     def time_provider(self):
@@ -149,45 +167,47 @@ class TestTask(unittest.TestCase):
 
     @data_provider(correct_strings)
     def test_creating_from_correct_string(self, string: str):
-        assert Task.from_string(string, Clock().time()) is not None
+        assert Task.from_string(string, Clock()) is not None
 
     @data_provider(empty_strings)
     def test_not_creating_from_empty_string(self, string: str):
-        assert Task.from_string(string, Clock().time()) is None
+        assert Task.from_string(string, Clock()) is None
 
     @data_provider(incorrect_strings)
     def test_throwing_exception_on_incorrect_string(self, string: str):
         with self.assertRaises(Exception):
-            Task.from_string(string, Clock().time())
+            Task.from_string(string, Clock())
 
     @data_provider(skipped_provider)
     def test_skipped(self, task: str, now: str, expected_last_call: str):
         now = parse(now)
         expected_last_call = parse(expected_last_call)
         assert self\
-            .__task(task, True, expected_last_call - timedelta(microseconds=1))\
-            .skipped(now) is True
-        assert self.__task(task, True, expected_last_call).skipped(now) is False
+            .__task(task, True, expected_last_call - timedelta(microseconds=1), now)\
+            .skipped() is True
+        assert self.__task(task, True, expected_last_call, now).skipped() is False
 
     @data_provider(calls_provider)
-    def test_calls(self, task: str, _from: str, _to: str, expected_calls: dict):
-        calls = self.__task(task).calls(parse(_from), parse(_to))
+    def test_calls(self, task: str, last_call: str, _from: str, _to: str, expected_calls: dict):
+        task = Task.from_string(task + ' ' + self.__command + '  #' + last_call, Clock()) if last_call\
+            else self.__task(task)
+        calls = task.calls(parse(_from), parse(_to))
         assert len(calls) == (max(expected_calls.keys()) + 1 if expected_calls else 0)
         for i, v in expected_calls.items():
             assert calls[i] == parse(v)
 
     @data_provider(time_provider)
     def test_converting_to_string(self, original: str, expected: str, _datetime: datetime = None):
-        task = Task.from_string(original, Clock().time())
+        task = Task.from_string(original, MockClock(_datetime) if _datetime else Clock())
         if _datetime:
             # with freeze_time(_datetime):
-            task.execute(_datetime)
+            task.execute()
         assert str(task) == expected
 
-    def __task(self, time: str, command: bool = True, last_call: datetime = None):
+    def __task(self, time: str, command: bool = True, last_call: datetime = None, now: datetime = None):
         string = time
         if command:
             string += ' ' + self.__command
         if last_call:
             string += ' #' + str(int(last_call.timestamp()))
-        return Task.from_string(string, parse('1970-01-01 03:00:00'))
+        return Task.from_string(string, MockClock(now) if now else Clock())

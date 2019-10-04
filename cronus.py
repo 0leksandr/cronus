@@ -9,7 +9,6 @@ import sys
 
 # todo: better track/check file change (akelpad)
 # todo: check tasks to be unique?
-# todo: fix overwriting from 22:15 to 21:45 at 22:00 (task should be executed)
 # todo: save checkpoint is task was just executed, and next one is later then (next checkpoint)?
 # todo: support for specific dates
 # todo: why huge CPU load for XLS file, that is already open?
@@ -24,7 +23,7 @@ sep = '[ \\t]'
 nr1 = '(?:\\*|\\*/\\d+|\\d+|\\d+-\\d+)'
 nr = '(' + nr1 + '(?:,' + nr1 + ')*' + ')'
 command = '(?:\'[^\']*\'|"[^"]*"|[^#\'"]+)+'
-last_call = ' #(\\d+)'
+last_call = ' #(\\d+|\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})'
 end = '\\n?$'
 # comment = '#(?:(?!' + last_call + end + ').)*'
 comment = '#.*'
@@ -42,7 +41,7 @@ class Clock:
         return datetime.now()
 
 
-class Task:  # TODO: use `Clock` instead of passing `datetime` everywhere
+class Task:
     def __init__(self,
                  original_string: str,
                  months: str,
@@ -52,7 +51,7 @@ class Task:  # TODO: use `Clock` instead of passing `datetime` everywhere
                  minutes: str,
                  seconds: str,
                  _command: str,
-                 creation_time: datetime,
+                 clock: Clock,
                  _last_call: datetime = None):
         self.__original_string = original_string
         self.__months = self.__values(months, 1, 12)
@@ -65,13 +64,14 @@ class Task:  # TODO: use `Clock` instead of passing `datetime` everywhere
         self.__minutes = self.__values(minutes, 0, 59)
         self.__seconds = self.__values(seconds, 0, 59)
         self.__command = _command
-        self.__creation_time = creation_time
+        self.__clock = clock
+        self.__creation_time = clock.time()
         self.__last_call = _last_call
         self.__running = False
         self.__expected_last_call(datetime(3000, 1, 1))  # todo: check if it may ever be called
 
     @staticmethod
-    def from_string(string: str, now: datetime):
+    def from_string(string: str, clock: Clock):
         global pattern, beginning, comment, last_call, end
 
         if re.match(beginning + comment, string) or re.match(beginning + end, string):
@@ -86,11 +86,14 @@ class Task:  # TODO: use `Clock` instead of passing `datetime` everywhere
         _last_call = re.search('^(.+)' + last_call + end, string)
         if _last_call:
             string = _last_call.group(1)
-            _last_call = datetime.fromtimestamp(int(_last_call.group(2)))
+            if _last_call.group(2).isdigit():
+                _last_call = datetime.fromtimestamp(int(_last_call.group(2)))
+            else:
+                _last_call = datetime.strptime(_last_call.group(2), '%Y-%m-%d %H:%M:%S')
         else:
             string = re.match('(.*)' + end, string).group(1)
             _last_call = None
-        return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [now, _last_call]))
+        return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [clock, _last_call]))
 
     def __str__(self) -> str:
         global last_call, end
@@ -105,9 +108,9 @@ class Task:  # TODO: use `Clock` instead of passing `datetime` everywhere
             string += ' #' + str(int(self.__last_call.timestamp()))
         return string
 
-    def skipped(self, now: datetime) -> bool:
+    def skipped(self) -> bool:
         __last_call = self.__last_call if self.__last_call else self.__creation_time
-        return __last_call < self.__expected_last_call(now)
+        return __last_call < self.__expected_last_call()
 
     def calls(self, _from: datetime, _to: datetime) -> List[datetime]:
         _calls = []
@@ -139,11 +142,11 @@ class Task:  # TODO: use `Clock` instead of passing `datetime` everywhere
             if year > _to:
                 return _calls
 
-    def execute(self, now: datetime) -> None:
+    def execute(self) -> None:
         if not self.__running:
             self.__running = True
             self.__run()
-            self.__last_call = now
+            self.__last_call = self.__clock.time()
             self.__running = False
 
     def equals(self, other: object) -> bool:  # todo: cover with test
@@ -181,7 +184,9 @@ class Task:  # TODO: use `Clock` instead of passing `datetime` everywhere
                         raise Exception('Unknown format')
         return values
 
-    def __expected_last_call(self, now: datetime) -> datetime:
+    def __expected_last_call(self, now: datetime = None) -> datetime:
+        if not now:
+            now = self.__clock.time()
         years = 0
         year = self.__year_start(now)
         while True:
@@ -281,7 +286,7 @@ class Cronus:
         for task_id in range(len(self.__lines)):
             task = None
             try:
-                task = Task.from_string(self.__lines[task_id], self.__time)
+                task = Task.from_string(self.__lines[task_id], self.__clock)
             except Exception as exception:
                 alert(exception)
             if task:
@@ -310,7 +315,7 @@ class Cronus:
                 next_event = self.__next_event()
                 if next_event[0] > self.__clock.time():
                     for task in tasks.values():
-                        task.execute(self.__clock.time())
+                        task.execute()
                     tasks = {}
                     self.__wait(next_event[0])
                 for task_id in next_event[1]:
@@ -328,8 +333,8 @@ class Cronus:
 
     def __run_skipped(self) -> None:
         for task in self.__tasks.values():
-            if task.skipped(self.__time):
-                task.execute(self.__clock.time())
+            if task.skipped():
+                task.execute()
 
     def __next_event(self) -> Tuple[datetime, List[int]]:
         while not self.__next_events:
@@ -362,9 +367,8 @@ class Cronus:
             * self.__saving_interval.total_seconds())
 
     def __wait(self, _datetime: datetime) -> None:
-        next_checkpoint = self.__last_checkpoint() + self.__saving_interval  # todo: then why checkpoint?
+        next_checkpoint = self.__checkpoint + self.__saving_interval
         if next_checkpoint < _datetime:
-            self.__sleep(next_checkpoint)
             self.__write()
         self.__sleep(_datetime)
         self.__time = _datetime
