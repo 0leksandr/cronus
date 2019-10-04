@@ -2,6 +2,7 @@ import unittest
 from unittest_data_provider import data_provider
 from datetime import datetime, timedelta
 from dateutil.parser import parse
+from typing import List, Tuple
 # from freezegun import freeze_time
 
 # import sys
@@ -27,7 +28,7 @@ class TestTask(unittest.TestCase):
                         __command + ' "#c"',
                         __command + ' \'#d \' "#e " \'# f\' "# g"')
 
-    def correct_strings(self):
+    def correct_strings(self) -> List[str]:
         correct_beginnings = correct_delimiters = (
             # ' ',
             # '\t',
@@ -155,7 +156,7 @@ class TestTask(unittest.TestCase):
          {0: '2019-04-12 03:23:01', 58: '2019-04-12 03:23:59'}),
     ]
 
-    def time_provider(self):
+    def time_provider(self) -> Tuple[str, str, datetime]:
         _time = '* * * * * * '
         for date in [None, parse('2017-11-16 23:59:59')]:
             for command in self.correct_commands:
@@ -166,20 +167,20 @@ class TestTask(unittest.TestCase):
                            date)
 
     @data_provider(correct_strings)
-    def test_creating_from_correct_string(self, string: str):
+    def test_creating_from_correct_string(self, string: str) -> None:
         assert Task.from_string(string, Clock()) is not None
 
     @data_provider(empty_strings)
-    def test_not_creating_from_empty_string(self, string: str):
+    def test_not_creating_from_empty_string(self, string: str) -> None:
         assert Task.from_string(string, Clock()) is None
 
     @data_provider(incorrect_strings)
-    def test_throwing_exception_on_incorrect_string(self, string: str):
+    def test_throwing_exception_on_incorrect_string(self, string: str) -> None:
         with self.assertRaises(Exception):
             Task.from_string(string, Clock())
 
     @data_provider(skipped_provider)
-    def test_skipped(self, task: str, now: str, expected_last_call: str):
+    def test_skipped(self, task: str, now: str, expected_last_call: str) -> None:
         now = parse(now)
         expected_last_call = parse(expected_last_call)
         assert self\
@@ -188,7 +189,7 @@ class TestTask(unittest.TestCase):
         assert self.__task(task, True, expected_last_call, now).skipped() is False
 
     @data_provider(calls_provider)
-    def test_calls(self, task: str, last_call: str, _from: str, _to: str, expected_calls: dict):
+    def test_calls(self, task: str, last_call: str, _from: str, _to: str, expected_calls: dict) -> None:
         task = Task.from_string(task + ' ' + self.__command + '  #' + last_call, Clock()) if last_call\
             else self.__task(task)
         calls = task.calls(parse(_from), parse(_to))
@@ -197,7 +198,7 @@ class TestTask(unittest.TestCase):
             assert calls[i] == parse(v)
 
     @data_provider(time_provider)
-    def test_converting_to_string(self, original: str, expected: str, _datetime: datetime = None):
+    def test_converting_to_string(self, original: str, expected: str, _datetime: datetime = None) -> None:
         task = Task.from_string(original, MockClock(_datetime) if _datetime else Clock())
         if _datetime:
             # with freeze_time(_datetime):

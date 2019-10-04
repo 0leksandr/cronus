@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import calendar
 import subprocess
 import time
-from typing import List, Tuple
+from typing import List
 import os
 import sys
 
@@ -253,6 +253,12 @@ class WakeUpException(Exception):
     pass
 
 
+class Event:
+    def __init__(self, _datetime: datetime, task_ids: List[int]):
+        self.datetime = _datetime
+        self.task_ids = task_ids
+
+
 class Cronus:
     def __init__(self, clock: Clock):
         self.__clock = clock  # fucking workaround because python's unittest cannot mock with lambda
@@ -309,17 +315,17 @@ class Cronus:
         self.__update_time()
         self.__run_skipped()
         self.__next_events = []
-        tasks = {}
+        tasks = []
         try:
             while True:
                 next_event = self.__next_event()
-                if next_event[0] > self.__clock.time():
-                    for task in tasks.values():
+                if next_event.datetime > self.__clock.time():
+                    for task in tasks:
                         task.execute()
-                    tasks = {}
-                    self.__wait(next_event[0])
-                for task_id in next_event[1]:
-                    tasks[task_id] = self.__tasks[task_id]
+                    tasks = []
+                    self.__wait(next_event.datetime)
+                for task_id in next_event.task_ids:
+                    tasks.append(self.__tasks[task_id])
         except FileChangedException:
             old_tasks = self.__tasks
             self.__read()
@@ -336,14 +342,14 @@ class Cronus:
             if task.skipped():
                 task.execute()
 
-    def __next_event(self) -> Tuple[datetime, List[int]]:
+    def __next_event(self) -> Event:
         while not self.__next_events:
             self.__next_events = self.__determine_next_events()
             if not self.__next_events:
                 self.__wait(self.__time + self.__queue_interval)
         return self.__next_events.pop(0)
 
-    def __determine_next_events(self) -> List[Tuple[datetime, List[int]]]:
+    def __determine_next_events(self) -> List[Event]:
         next_events_dic = {}
         for task_id, task in self.__tasks.items():
             next_events_dic[task_id] = task.calls(self.__time, self.__time + self.__queue_interval)
@@ -358,7 +364,8 @@ class Cronus:
                 if next_events_dic[task_id][0] == next_event_time:
                     next_task_ids.append(task_id)
                     del next_events_dic[task_id][0]
-            next_events_list.append((next_event_time, next_task_ids))
+            # next_events_list.append((next_event_time, next_task_ids))
+            next_events_list.append(Event(next_event_time, next_task_ids))
         return next_events_list
 
     def __last_checkpoint(self) -> datetime:
