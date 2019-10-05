@@ -41,6 +41,29 @@ class Clock:
         return datetime.now()
 
 
+class LastCall:
+    def __init__(self, _datetime: datetime, _format: int):
+        self.datetime = _datetime
+        self.format = _format
+
+    @staticmethod
+    def from_string(string: str):
+        _last_call = re.search('^.+' + last_call + end, string)
+        if _last_call:
+            _last_call = _last_call.group(1)
+            if _last_call.isdigit():
+                return LastCall(datetime.fromtimestamp(int(_last_call)), 1)
+            else:
+                return LastCall(datetime.strptime(_last_call, '%Y-%m-%d %H:%M:%S'), 2)
+        return None
+
+    def __str__(self) -> str:
+        if self.format == 1:
+            return str(int(self.datetime.timestamp()))
+        if self.format == 2:
+            return self.datetime.strftime('%Y-%m-%d %H:%M:%S')
+
+
 class Task:
     def __init__(self,
                  original_string: str,
@@ -52,7 +75,7 @@ class Task:
                  seconds: str,
                  _command: str,
                  clock: Clock,
-                 _last_call: datetime = None):
+                 _last_call: LastCall = None):
         self.__original_string = original_string
         self.__months = self.__values(months, 1, 12)
         self.__days = self.__values(days, 1, 31)
@@ -83,16 +106,8 @@ class Task:
         last_call_idx = 7
         if len(groups) != last_call_idx + 1:
             raise Exception('Task parsed incorrectly')
-        _last_call = re.search('^(.+)' + last_call + end, string)
-        if _last_call:
-            string = _last_call.group(1)
-            if _last_call.group(2).isdigit():
-                _last_call = datetime.fromtimestamp(int(_last_call.group(2)))
-            else:
-                _last_call = datetime.strptime(_last_call.group(2), '%Y-%m-%d %H:%M:%S')
-        else:
-            string = re.match('(.*)' + end, string).group(1)
-            _last_call = None
+        _last_call = LastCall.from_string(string)
+        string = re.match('^((?:(?!' + last_call + ').)*)(?:' + last_call + ')?' + end, string).group(1)
         return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [clock, _last_call]))
 
     def __str__(self) -> str:
@@ -105,16 +120,16 @@ class Task:
             raise Exception
         string = match.group(1)
         if self.__last_call:
-            string += ' #' + str(int(self.__last_call.timestamp()))
+            string += ' #' + str(self.__last_call)
         return string
 
     def skipped(self) -> bool:
-        __last_call = self.__last_call if self.__last_call else self.__creation_time
+        __last_call = self.__last_call.datetime if self.__last_call else self.__creation_time
         return __last_call < self.__expected_last_call()
 
     def calls(self, _from: datetime, _to: datetime) -> List[datetime]:
         _calls = []
-        _from = max(_from, self.__last_call + timedelta(microseconds=1)) if self.__last_call else _from
+        _from = max(_from, self.__last_call.datetime + timedelta(microseconds=1)) if self.__last_call else _from
         year = self.__year_start(_from)
         while True:
             for month in self.__months:  # todo: refactor
@@ -146,7 +161,10 @@ class Task:
         if not self.__running:
             self.__running = True
             self.__run()
-            self.__last_call = self.__clock.time()
+            if self.__last_call:
+                self.__last_call.datetime = self.__clock.time()
+            else:
+                self.__last_call = LastCall(self.__clock.time(), 1)
             self.__running = False
 
     def equals(self, other: object) -> bool:  # todo: cover with test

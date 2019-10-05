@@ -158,13 +158,22 @@ class TestTask(unittest.TestCase):
 
     def time_provider(self) -> Tuple[str, str, datetime]:
         _time = '* * * * * * '
-        for date in [None, parse('2017-11-16 23:59:59')]:
-            for command in self.correct_commands:
-                for last_call in ('', ' #123'):
-                    yield (_time + command + last_call,
-                           _time + command
-                           + ((' #' + str(int(date.timestamp()))) if date else last_call),
-                           date)
+        for command in self.correct_commands:
+            __timestamp_ = ' #' + str(int(parse('2017-11-16 23:59:59').timestamp()))
+            for vv in (
+                    ('',                      '',                      None),
+                    (' #123',                 ' #123',                 None),
+                    (' #2016-10-04 17:18:24', ' #2016-10-04 17:18:24', None),
+                    ('',                      __timestamp_,            '2017-11-16 23:59:59'),
+                    (' #123',                 __timestamp_,            '2017-11-16 23:59:59'),
+                    (' #2016-10-04 17:18:24', ' #2017-11-16 23:59:59', '2017-11-16 23:59:59'),
+            ):
+                original_last_call = vv[0]
+                expected = vv[1]
+                date = parse(vv[2]) if vv[2] else None
+                yield (_time + command + original_last_call,
+                       _time + command + expected,
+                       date)
 
     @data_provider(correct_strings)
     def test_creating_from_correct_string(self, string: str) -> None:
