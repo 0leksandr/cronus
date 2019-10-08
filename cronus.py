@@ -111,14 +111,7 @@ class Task:
         return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [clock, _last_call]))
 
     def __str__(self) -> str:
-        global last_call, end
-
         string = self.__original_string
-        match = re.search('^(.*)' + last_call + end, string) \
-            or re.search('^(.*)' + end, string)
-        if not match:
-            raise Exception
-        string = match.group(1)
         if self.__last_call:
             string += ' #' + str(self.__last_call)
         return string
@@ -161,15 +154,18 @@ class Task:
         if not self.__running:
             self.__running = True
             self.__run()
-            if self.__last_call:
-                self.__last_call.datetime = self.__clock.time()
-            else:
-                self.__last_call = LastCall(self.__clock.time(), 1)
+            self.__set_last_call(self.__clock.time())
             self.__running = False
 
     def equals(self, other: object) -> bool:  # todo: cover with test
         if isinstance(other, Task):
             return self.__original_string == other.__original_string
+        raise Exception(type(other))
+
+    def copy_last_call(self, other: object):
+        if isinstance(other, Task):
+            if other.__last_call:
+                return self.__set_last_call(other.__last_call.datetime)
         raise Exception(type(other))
 
     def __values(self, value: str, _min: int, _max: int) -> List[int]:
@@ -237,6 +233,12 @@ class Task:
             subprocess.call(self.__command, shell=True)
         except Exception as exception:
             alert(exception)
+
+    def __set_last_call(self, _datetime: datetime):
+        if self.__last_call:
+            self.__last_call.datetime = _datetime
+        else:
+            self.__last_call = LastCall(_datetime, 2)
 
     @staticmethod
     def __year_start(base: datetime) -> datetime:
@@ -347,10 +349,10 @@ class Cronus:
         except FileChangedException:
             old_tasks = self.__tasks
             self.__read()
-            for task_id, task in self.__tasks.items():
+            for task in self.__tasks.values():
                 for old_task in old_tasks.values():
                     if task.equals(old_task):
-                        self.__tasks[task_id] = old_task
+                        task.copy_last_call(old_task)
             self.__main_activity()
         except WakeUpException:
             self.__main_activity()

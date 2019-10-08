@@ -156,24 +156,24 @@ class TestTask(unittest.TestCase):
          {0: '2019-04-12 03:23:01', 58: '2019-04-12 03:23:59'}),
     ]
 
-    def time_provider(self) -> Tuple[str, str, datetime]:
+    def to_string_provider(self) -> Tuple[str, str, datetime]:
         _time = '* * * * * * '
         for command in self.correct_commands:
             __timestamp_ = ' #' + str(int(parse('2017-11-16 23:59:59').timestamp()))
             for vv in (
-                    ('',                      '',                      None),
-                    (' #123',                 ' #123',                 None),
-                    (' #2016-10-04 17:18:24', ' #2016-10-04 17:18:24', None),
-                    ('',                      __timestamp_,            '2017-11-16 23:59:59'),
-                    (' #123',                 __timestamp_,            '2017-11-16 23:59:59'),
-                    (' #2016-10-04 17:18:24', ' #2017-11-16 23:59:59', '2017-11-16 23:59:59'),
+                    ('',                      None,                  ''),
+                    (' #123',                 None,                  ' #123'),
+                    (' #2016-10-04 17:18:24', None,                  ' #2016-10-04 17:18:24'),
+                    ('',                      '2017-11-16 23:59:59', ' #2017-11-16 23:59:59'),
+                    (' #123',                 '2017-11-16 23:59:59', __timestamp_),
+                    (' #2016-10-04 17:18:24', '2017-11-16 23:59:59', ' #2017-11-16 23:59:59'),
             ):
                 original_last_call = vv[0]
-                expected = vv[1]
-                date = parse(vv[2]) if vv[2] else None
+                date = parse(vv[1]) if vv[1] else None
+                expected = vv[2]
                 yield (_time + command + original_last_call,
-                       _time + command + expected,
-                       date)
+                       date,
+                       _time + command + expected)
 
     @data_provider(correct_strings)
     def test_creating_from_correct_string(self, string: str) -> None:
@@ -206,8 +206,8 @@ class TestTask(unittest.TestCase):
         for i, v in expected_calls.items():
             assert calls[i] == parse(v)
 
-    @data_provider(time_provider)
-    def test_converting_to_string(self, original: str, expected: str, _datetime: datetime = None) -> None:
+    @data_provider(to_string_provider)
+    def test_converting_to_string(self, original: str, _datetime: datetime, expected: str) -> None:
         task = Task.from_string(original, MockClock(_datetime) if _datetime else Clock())
         if _datetime:
             # with freeze_time(_datetime):
