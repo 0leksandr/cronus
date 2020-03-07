@@ -7,10 +7,15 @@ from typing import List
 import os
 import sys
 
+# todo: fix midnight glitch (23:59:59 executing twice)
 # todo: better track/check file change (akelpad)
+# todo: get file change event instead of checking file every second
 # todo: check tasks to be unique?
-# todo: save checkpoint is task was just executed, and next one is later then (next checkpoint)?
+# todo: save checkpoint if task was just executed, and next one is later then (next checkpoint)?
 # todo: support for specific dates
+# todo: end time for task (0 0 0 - 5 0 0 echo "sleep")
+# todo: fix task executing multiple times, if such times passed when it was executing (* * * * * *  beep && akelpad)
+# todo: do not execute task, if updated, and time passed (* 0 45 -> * 1 0, now = 1:15)
 # todo: why huge CPU load for XLS file, that is already open?
 # todo: test daylight saving time
 # external
@@ -162,11 +167,12 @@ class Task:
             return self.__original_string == other.__original_string
         raise Exception(type(other))
 
-    def copy_last_call(self, other: object):
+    def copy_last_call(self, other: object) -> None:
         if isinstance(other, Task):
             if other.__last_call:
-                return self.__set_last_call(other.__last_call.datetime)
-        raise Exception(type(other))
+                self.__set_last_call(other.__last_call.datetime)
+        else:
+            raise Exception(type(other))
 
     def __values(self, value: str, _min: int, _max: int) -> List[int]:
         values = sorted(list(set(self.__calc_values(value, _min, _max))))
@@ -234,7 +240,7 @@ class Task:
         except Exception as exception:
             alert(exception)
 
-    def __set_last_call(self, _datetime: datetime):
+    def __set_last_call(self, _datetime: datetime) -> None:
         if self.__last_call:
             self.__last_call.datetime = _datetime
         else:
@@ -349,10 +355,10 @@ class Cronus:
         except FileChangedException:
             old_tasks = self.__tasks
             self.__read()
-            for task in self.__tasks.values():
+            for task_id, task in self.__tasks.items():
                 for old_task in old_tasks.values():
                     if task.equals(old_task):
-                        task.copy_last_call(old_task)
+                        self.__tasks[task_id].copy_last_call(old_task)
             self.__main_activity()
         except WakeUpException:
             self.__main_activity()
@@ -393,12 +399,12 @@ class Cronus:
             int(self.__time.timestamp() / self.__saving_interval.total_seconds())
             * self.__saving_interval.total_seconds())
 
-    def __wait(self, _datetime: datetime) -> None:
+    def __wait(self, until: datetime) -> None:
         next_checkpoint = self.__checkpoint + self.__saving_interval
-        if next_checkpoint < _datetime:
+        if next_checkpoint < until:
             self.__write()
-        self.__sleep(_datetime)
-        self.__time = _datetime
+        self.__sleep(until)
+        self.__time = until
 
     def __sleep(self, until: datetime) -> None:
         until = until.timestamp()
