@@ -17,6 +17,7 @@ import sys
 # todo: do not execute task, if updated, and time passed (* 0 45 -> * 1 0, now = 1:15)
 # todo: why huge CPU load for XLS file, that is already open?
 # todo: test daylight saving time
+# todo: sleep 0.02 in test
 # external
 # todo: remove time workaround when freezegun is fixed
 # todo: push unittest-data-provider
@@ -285,12 +286,12 @@ class Event:
 
 
 class Cronus:
-    def __init__(self, clock: Clock):
+    def __init__(self, clock: Clock, sleep_interval_seconds: float = 5):
         self.__clock = clock  # fucking workaround because python's unittest cannot mock with lambda
         self.__queue_interval = timedelta(days=1)
         self.__wakeup_interval = timedelta(minutes=10).total_seconds()
         self.__saving_interval = timedelta(minutes=5)
-        self.__sleep_interval = timedelta(seconds=5).total_seconds()
+        self.__sleep_interval = timedelta(seconds=sleep_interval_seconds).total_seconds()
         self.__filename = \
             self.__tasks = \
             self.__lines = \

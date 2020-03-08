@@ -147,7 +147,7 @@ class TestCronus(unittest.TestCase):
         global stop
         stop = False
         try:
-            Cronus(MockClock()).run(crontab)
+            Cronus(MockClock(), 0.01).run(crontab)
         except SystemExit:
             pass
 
@@ -211,7 +211,7 @@ class TestCronus(unittest.TestCase):
 
     @staticmethod
     def __let_daemon_work() -> None:
-        time.sleep(0.7)
+        time.sleep(0.1)
 
     def __stop(self) -> None:
         global stop
