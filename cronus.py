@@ -7,7 +7,6 @@ from typing import List
 import os
 import sys
 
-# todo: fix midnight glitch (23:59:59 executing twice)
 # todo: better track/check file change (akelpad)
 # todo: get file change event instead of checking file every second
 # todo: check tasks to be unique?
@@ -291,7 +290,7 @@ class Cronus:
         self.__queue_interval = timedelta(days=1)
         self.__wakeup_interval = timedelta(minutes=10).total_seconds()
         self.__saving_interval = timedelta(minutes=5)
-        self.__sleep_interval = timedelta(seconds=0.5).total_seconds()
+        self.__sleep_interval = timedelta(seconds=5).total_seconds()
         self.__filename = \
             self.__tasks = \
             self.__lines = \
@@ -341,17 +340,18 @@ class Cronus:
         self.__update_time()
         self.__run_skipped()
         self.__next_events = []
-        tasks = []
+        tasks = {}
         try:
             while True:
                 next_event = self.__next_event()
                 if next_event.datetime > self.__clock.time():
-                    for task in tasks:
+                    for task in tasks.values():
                         task.execute()
-                    tasks = []
+                    tasks = {}
                     self.__wait(next_event.datetime)
                 for task_id in next_event.task_ids:
-                    tasks.append(self.__tasks[task_id])
+                    # map by id in order by fix pre-midnight glitch (executing task twice)
+                    tasks[task_id] = self.__tasks[task_id]
         except FileChangedException:
             old_tasks = self.__tasks
             self.__read()
