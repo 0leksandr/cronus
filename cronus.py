@@ -8,12 +8,12 @@ import os
 import sys
 
 # todo: better track/check file change (akelpad)
-# todo: get file change event instead of checking file every second
+# todo: await file change event instead of checking file every second
 # todo: check tasks to be unique?
 # todo: save checkpoint if task was just executed, and next one is later then (next checkpoint)?
-# todo: support for specific dates
+# todo: support for concrete dates
 # todo: end time for task (0 0 0 - 5 0 0 echo "sleep")
-# todo: fix task executing multiple times, if such times passed when it was executing (* * * * * *  beep && akelpad)
+# todo: fix task executing multiple times, if such times passed while it was executing (* * * * * *  beep && akelpad)
 # todo: do not execute task, if updated, and time passed (* 0 45 -> * 1 0, now = 1:15)
 # todo: why huge CPU load for XLS file, that is already open?
 # todo: test daylight saving time
@@ -21,7 +21,7 @@ import sys
 # external
 # todo: remove time workaround when freezegun is fixed
 # todo: push unittest-data-provider
-# todo: linux app
+# todo: linux app/package
 
 
 sep = '[ \\t]'
@@ -280,9 +280,9 @@ class WakeUpException(Exception):
 
 
 class Event:
-    def __init__(self, _datetime: datetime, task_ids: List[int]):
+    def __init__(self, _datetime: datetime, tasks: List[Task]):
         self.datetime = _datetime
-        self.task_ids = task_ids
+        self.tasks = tasks
 
 
 class Cronus:
@@ -341,18 +341,13 @@ class Cronus:
         self.__update_time()
         self.__run_skipped()
         self.__next_events = []
-        tasks = {}
         try:
             while True:
                 next_event = self.__next_event()
                 if next_event.datetime > self.__clock.time():
-                    for task in tasks.values():
-                        task.execute()
-                    tasks = {}
                     self.__wait(next_event.datetime)
-                for task_id in next_event.task_ids:
-                    # map by id in order by fix pre-midnight glitch (executing task twice)
-                    tasks[task_id] = self.__tasks[task_id]
+                for task in next_event.tasks:
+                    task.execute()
         except FileChangedException:
             old_tasks = self.__tasks
             self.__read()
@@ -376,7 +371,7 @@ class Cronus:
                 self.__wait(self.__time + self.__queue_interval)
         return self.__next_events.pop(0)
 
-    def __determine_next_events(self) -> List[Event]:
+    def __determine_next_events(self) -> List[Event]:  # todo: simplify (remove useless cycles)
         next_events_dic = {}
         for task_id, task in self.__tasks.items():
             next_events_dic[task_id] = task.calls(self.__time, self.__time + self.__queue_interval)
@@ -386,13 +381,14 @@ class Cronus:
             if not next_events_dic:
                 break
             next_event_time = min(v[0] for v in next_events_dic.values())
-            next_task_ids = []
+            next_event_tasks = {}
             for task_id in next_events_dic:
                 if next_events_dic[task_id][0] == next_event_time:
-                    next_task_ids.append(task_id)
+                    # map by id in order by fix pre-midnight glitch (executing task twice)
+                    next_event_tasks[task_id] = self.__tasks[task_id]
+
                     del next_events_dic[task_id][0]
-            # next_events_list.append((next_event_time, next_task_ids))
-            next_events_list.append(Event(next_event_time, next_task_ids))
+            next_events_list.append(Event(next_event_time, list(next_event_tasks.values())))
         return next_events_list
 
     def __last_checkpoint(self) -> datetime:

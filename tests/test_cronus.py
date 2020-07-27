@@ -211,7 +211,7 @@ class TestCronus(unittest.TestCase):
 
     @staticmethod
     def __let_daemon_work() -> None:
-        time.sleep(0.1)
+        time.sleep(0.2)
 
     def __stop(self) -> None:
         global stop
