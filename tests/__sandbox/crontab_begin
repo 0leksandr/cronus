@@ -1,6 +1,6 @@
 # mon dom dow h m s command
-* * * * */15 0 echo 15m      >> __sandbox/sandbox
-* * * 22 15 00 echo 22:15_1  >> __sandbox/sandbox
-* * * 22 15 00 echo 22:15_2  >> __sandbox/sandbox #0
-* * * * * */15 echo 15s      >> __sandbox/sandbox
-* * * 23 59 59 echo 23:59:59 >> __sandbox/sandbox
+* * *  * */15    0  echo 15m      >> __sandbox/sandbox
+* * * 22   15    0  echo 22:15_1  >> __sandbox/sandbox
+* * * 22   15    0  echo 22:15_2  >> __sandbox/sandbox #0
+* * *  *    * */15  echo 15s      >> __sandbox/sandbox
+* * * 23   59   59  echo 23:59:59 >> __sandbox/sandbox

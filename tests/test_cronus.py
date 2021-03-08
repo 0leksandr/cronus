@@ -6,7 +6,6 @@ import threading
 import time
 import os
 from typing import List
-import re
 
 from cronus import Cronus, Clock
 
@@ -58,7 +57,7 @@ class MockClock(Clock):
 
 class TestCronus(unittest.TestCase):
     """
-    Integration test, takes some time to run
+    Functional test, takes some time to run
     """
 
     def test(self):
@@ -85,7 +84,7 @@ class TestCronus(unittest.TestCase):
                 '2017-11-18 22:15:15': ([], ['15s']),
             })
             self.__set_time(self.__parse_time('2017-11-18 22:15:16'))
-            self.__change_file([2], ['* * * * * */5  echo 5s       >> __sandbox/sandbox'])
+            self.__change_file([2], ['* * *  *    *  */5  echo 5s       >> __sandbox/sandbox'])
             self.__assert_events({
                 '2017-11-18 22:15:20': ([], ['5s']),
                 '2017-11-18 22:15:25': ([], ['5s']),
@@ -116,12 +115,20 @@ class TestCronus(unittest.TestCase):
             })
 
             lines = self.__read_lines(crontab)
-            lines[2] = re.sub('22 15', '21 45', lines[2])
+            lines[2] = lines[2].replace('22   15', '21   45')
             self.__write(crontab, lines)
 
             self.__assert_events({
                 '2018-04-10 22:00:01': (['22:15_2'], []),
             })
+
+            self.__set_time(self.__parse_time('2020-03-07 22:50:30'))
+            self.__change_file([], ['* * *  *    *    0  echo 1m       >> __sandbox/sandbox'])
+            self.__assert_events({
+                '2021-03-07 22:50:30': ('reboot', ['15m', '22:15_2', '15s', '23:59:59', '5s']),
+                '2021-03-07 22:55:30': ('reboot', ['15s', '5s', '1m']),
+            })
+
             self.__stop()
             assert self.__read_lines(crontab) == self.__read_lines(sandbox_dir + '/crontab_end')
         finally:
@@ -211,7 +218,7 @@ class TestCronus(unittest.TestCase):
 
     @staticmethod
     def __let_daemon_work() -> None:
-        time.sleep(0.2)
+        time.sleep(0.3)
 
     def __stop(self) -> None:
         global stop

@@ -7,8 +7,10 @@ from typing import List
 import os
 import sys
 
+# todo: allow manual overwriting of last_call (currently it's not working). F.e., set TZ-2 in BIOS, see time 15:00 instead of 13:00, try to change last_call to -2h, see it's not working
 # todo: better track/check file change (akelpad)
 # todo: await file change event instead of checking file every second
+# todo: allow time without seconds
 # todo: check tasks to be unique?
 # todo: save checkpoint if task was just executed, and next one is later then (next checkpoint)?
 # todo: support for concrete dates
@@ -37,13 +39,22 @@ pattern = beginning + (nr + sep + '+') * 6 + '(' + command + ')' + '(' + comment
 
 
 def alert(error):
+    # print(traceback.format_exc())
     error = str(error).replace('"', '\\"')
+    _traceback = sys.exc_info()[2]
+    if _traceback:
+        filename = os.path.split(_traceback.tb_frame.f_code.co_filename)[1]
+        error += " at " + filename + ":" + str(_traceback.tb_lineno)
     subprocess.call('notify-send "' + Cronus.__name__ + ': ' + error + '"', shell=True)
 
 
 class Clock:
     def time(self):
         return datetime.now()
+
+
+last_call_fmt_timestamp = 1
+last_call_fmt_datetime = 2
 
 
 class LastCall:
@@ -57,15 +68,15 @@ class LastCall:
         if _last_call:
             _last_call = _last_call.group(1)
             if _last_call.isdigit():
-                return LastCall(datetime.fromtimestamp(int(_last_call)), 1)
+                return LastCall(datetime.fromtimestamp(int(_last_call)), last_call_fmt_timestamp)
             else:
-                return LastCall(datetime.strptime(_last_call, '%Y-%m-%d %H:%M:%S'), 2)
+                return LastCall(datetime.strptime(_last_call, '%Y-%m-%d %H:%M:%S'), last_call_fmt_datetime)
         return None
 
     def __str__(self) -> str:
-        if self.format == 1:
+        if self.format == last_call_fmt_timestamp:
             return str(int(self.datetime.timestamp()))
-        if self.format == 2:
+        if self.format == last_call_fmt_datetime:
             return self.datetime.strftime('%Y-%m-%d %H:%M:%S')
 
 
@@ -79,8 +90,8 @@ class Task:
                  minutes: str,
                  seconds: str,
                  _command: str,
-                 clock: Clock,
-                 _last_call: LastCall = None):
+                 _last_call: LastCall,
+                 clock: Clock):
         self.__original_string = original_string
         self.__months = self.__values(months, 1, 12)
         self.__days = self.__values(days, 1, 31)
@@ -92,9 +103,9 @@ class Task:
         self.__minutes = self.__values(minutes, 0, 59)
         self.__seconds = self.__values(seconds, 0, 59)
         self.__command = _command
+        self.__last_call = _last_call
         self.__clock = clock
         self.__creation_time = clock.time()
-        self.__last_call = _last_call
         self.__running = False
         self.__expected_last_call(datetime(3000, 1, 1))  # todo: check if it may ever be called
 
@@ -111,15 +122,12 @@ class Task:
         last_call_idx = 7
         if len(groups) != last_call_idx + 1:
             raise Exception('Task parsed incorrectly')
-        _last_call = LastCall.from_string(string)
+        _last_call = LastCall.from_string(string) or LastCall(clock.time(), last_call_fmt_datetime)
         string = re.match('^((?:(?!' + last_call + ').)*)(?:' + last_call + ')?' + end, string).group(1)
-        return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [clock, _last_call]))
+        return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [_last_call, clock]))
 
     def __str__(self) -> str:
-        string = self.__original_string
-        if self.__last_call:
-            string += ' #' + str(self.__last_call)
-        return string
+        return self.__original_string + ' #' + str(self.__last_call)
 
     def skipped(self) -> bool:
         __last_call = self.__last_call.datetime if self.__last_call else self.__creation_time
@@ -323,6 +331,7 @@ class Cronus:
                 alert(exception)
             if task:
                 self.__tasks[task_id] = task
+        self.__write()
 
     def __write(self) -> None:
         if self.__tasks and self.__lines:

@@ -161,18 +161,20 @@ class TestTask(unittest.TestCase):
         for command in self.correct_commands:
             __timestamp_ = ' #' + str(int(parse('2017-11-16 23:59:59').timestamp()))
             for vv in (
-                    ('',                      None,                  ''),
-                    (' #123',                 None,                  ' #123'),
-                    (' #2016-10-04 17:18:24', None,                  ' #2016-10-04 17:18:24'),
-                    ('',                      '2017-11-16 23:59:59', ' #2017-11-16 23:59:59'),
-                    (' #123',                 '2017-11-16 23:59:59', __timestamp_),
-                    (' #2016-10-04 17:18:24', '2017-11-16 23:59:59', ' #2017-11-16 23:59:59'),
+                    ('',                      '2017-11-16 23:59:59', False, ' #2017-11-16 23:59:59'),
+                    (' #123',                 '2017-11-16 23:59:59', False, ' #123'),
+                    (' #2016-10-04 17:18:24', '2017-11-16 23:59:59', False, ' #2016-10-04 17:18:24'),
+                    ('',                      '2017-11-16 23:59:59', True,  ' #2017-11-16 23:59:59'),
+                    (' #123',                 '2017-11-16 23:59:59', True,  __timestamp_),
+                    (' #2016-10-04 17:18:24', '2017-11-16 23:59:59', True,  ' #2017-11-16 23:59:59'),
             ):
                 original_last_call = vv[0]
-                date = parse(vv[1]) if vv[1] else None
-                expected = vv[2]
+                date = parse(vv[1])
+                execute = vv[2]
+                expected = vv[3]
                 yield (_time + command + original_last_call,
                        date,
+                       execute,
                        _time + command + expected)
 
     @data_provider(correct_strings)
@@ -199,18 +201,18 @@ class TestTask(unittest.TestCase):
 
     @data_provider(calls_provider)
     def test_calls(self, task: str, last_call: str, _from: str, _to: str, expected_calls: dict) -> None:
-        task = Task.from_string(task + ' ' + self.__command + '  #' + last_call, Clock()) if last_call\
-            else self.__task(task)
+        if not last_call:
+            last_call = '2000-01-01 00:00:00'
+        task = Task.from_string(task + ' ' + self.__command + '  #' + last_call, Clock())
         calls = task.calls(parse(_from), parse(_to))
         assert len(calls) == (max(expected_calls.keys()) + 1 if expected_calls else 0)
         for i, v in expected_calls.items():
             assert calls[i] == parse(v)
 
     @data_provider(to_string_provider)
-    def test_converting_to_string(self, original: str, _datetime: datetime, expected: str) -> None:
-        task = Task.from_string(original, MockClock(_datetime) if _datetime else Clock())
-        if _datetime:
-            # with freeze_time(_datetime):
+    def test_converting_to_string(self, original: str, _datetime: datetime, execute: bool, expected: str) -> None:
+        task = Task.from_string(original, MockClock(_datetime))
+        if execute:
             task.execute()
         assert str(task) == expected
 
