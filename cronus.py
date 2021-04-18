@@ -7,7 +7,7 @@ from typing import List
 import os
 import sys
 
-# todo: allow manual overwriting of last_call (currently it's not working). F.e., set TZ-2 in BIOS, see time 15:00 instead of 13:00, try to change last_call to -2h, see it's not working
+# todo: allow manual decrease of last_call
 # todo: better track/check file change (akelpad)
 # todo: await file change event instead of checking file every second
 # todo: allow time without seconds
@@ -79,6 +79,11 @@ class LastCall:
         if self.format == last_call_fmt_datetime:
             return self.datetime.strftime('%Y-%m-%d %H:%M:%S')
 
+    def is_less(self, other: object) -> bool:
+        if isinstance(other, LastCall):
+            return self.datetime.timestamp() < other.datetime.timestamp()
+        raise Exception(type(other))
+
 
 class Task:
     def __init__(self,
@@ -124,6 +129,7 @@ class Task:
             raise Exception('Task parsed incorrectly')
         _last_call = LastCall.from_string(string) or LastCall(clock.time(), last_call_fmt_datetime)
         string = re.match('^((?:(?!' + last_call + ').)*)(?:' + last_call + ')?' + end, string).group(1)
+        # noinspection PyTypeChecker
         return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [_last_call, clock]))
 
     def __str__(self) -> str:
@@ -174,6 +180,9 @@ class Task:
         if isinstance(other, Task):
             return self.__original_string == other.__original_string
         raise Exception(type(other))
+
+    def get_last_call(self) -> LastCall:
+        return self.__last_call
 
     def copy_last_call(self, other: object) -> None:
         if isinstance(other, Task):
@@ -363,7 +372,8 @@ class Cronus:
             for task_id, task in self.__tasks.items():
                 for old_task in old_tasks.values():
                     if task.equals(old_task):
-                        self.__tasks[task_id].copy_last_call(old_task)
+                        if task.get_last_call().is_less(old_task.get_last_call()):
+                            self.__tasks[task_id].copy_last_call(old_task)
             self.__main_activity()
         except WakeUpException:
             self.__main_activity()
