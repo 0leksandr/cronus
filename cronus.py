@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import calendar
 import subprocess
 import time
-from typing import List
+from typing import List, Union
 import os
 import sys
 
@@ -111,7 +111,7 @@ class Task:
         self.__last_call = _last_call
         self.__clock = clock
         self.__creation_time = clock.time()
-        self.__running = False
+        self.__process: Union[subprocess.Popen, None] = None
         self.__expected_last_call(datetime(3000, 1, 1))  # todo: check if it may ever be called
 
     @staticmethod
@@ -170,11 +170,12 @@ class Task:
                 return _calls
 
     def execute(self) -> None:
-        if not self.__running:
-            self.__running = True
-            self.__run()
-            self.__set_last_call(self.__clock.time())
-            self.__running = False
+        if self.__process:
+            if self.__process.poll() is None:
+                return
+            self.__process = None
+        self.__run()
+        self.__set_last_call(self.__clock.time())
 
     def equals(self, other: object) -> bool:  # todo: cover with test
         if isinstance(other, Task):
@@ -253,7 +254,7 @@ class Task:
 
     def __run(self) -> None:
         try:
-            subprocess.call(self.__command, shell=True)
+            self.__process = subprocess.Popen(self.__command, shell=True)
         except Exception as exception:
             alert(exception)
 
@@ -304,11 +305,11 @@ class Event:
 
 class Cronus:
     def __init__(self, clock: Clock, sleep_interval_seconds: float = 5):
-        self.__clock = clock  # fucking workaround because python's unittest cannot mock with lambda
+        self.__clock = clock  # workaround, because python's unittest cannot mock with lambda
         self.__queue_interval = timedelta(days=1)
-        self.__wakeup_interval = timedelta(minutes=10).total_seconds()
+        self.__wakeup_interval_seconds = timedelta(minutes=10).total_seconds()
         self.__saving_interval = timedelta(minutes=5)
-        self.__sleep_interval = timedelta(seconds=sleep_interval_seconds).total_seconds()
+        self.__sleep_interval_seconds = sleep_interval_seconds
         self.__filename = \
             self.__tasks = \
             self.__lines = \
@@ -426,13 +427,15 @@ class Cronus:
         until = until.timestamp()
         while True:
             self.__check_file()
-            diff = until - self.__clock.time().timestamp()
-            if diff > 0:
-                time.sleep(min((diff, self.__sleep_interval)))
-            elif -diff < self.__wakeup_interval:
-                return
+            seconds_to_event = until - self.__clock.time().timestamp()
+            if seconds_to_event > 0:
+                time.sleep(min((seconds_to_event, self.__sleep_interval_seconds)))
             else:
-                raise WakeUpException
+                overdue = -seconds_to_event
+                if overdue < self.__wakeup_interval_seconds:
+                    return
+                else:
+                    raise WakeUpException
 
     def __check_file(self) -> None:
         if os.path.getmtime(self.__filename) != self.__mtime:
