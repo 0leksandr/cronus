@@ -146,6 +146,7 @@ class TestCronus(unittest.TestCase):
         # unittest.mock.MagicMock()
         # with freeze_time(lambda: self.__time()):  # todo: replace with self.__time ?
         thread = threading.Thread(target=self.__run_daemon)
+        thread.daemon = True
         thread.start()
         return thread
 
@@ -154,7 +155,7 @@ class TestCronus(unittest.TestCase):
         global stop
         stop = False
         try:
-            Cronus(MockClock(), 0.01).run(crontab)
+            Cronus(crontab, MockClock(), 0.01).run()
         except SystemExit:
             pass
 
@@ -211,19 +212,23 @@ class TestCronus(unittest.TestCase):
         self.__write(sandbox, '')
 
     def __read_sandbox(self) -> List[str]:
-        self.__let_daemon_work()
+        self.__let_daemon_work(False)
         res = self.__read_lines(sandbox)
         self.__clear_sandbox()
         return res
 
     @staticmethod
-    def __let_daemon_work() -> None:
-        time.sleep(0.3)
+    def __let_daemon_work(expect_stop: bool) -> None:
+        # approximate (heuristic) minimal required delays
+        sleep = 0.2
+        if expect_stop:
+            sleep = 0.5  # needed for graceful stop of child processes
+        time.sleep(sleep)
 
     def __stop(self) -> None:
         global stop
         stop = True
-        self.__let_daemon_work()
+        self.__let_daemon_work(True)
 
     @staticmethod
     def __normalize_events(events: List[str]) -> List[str]:

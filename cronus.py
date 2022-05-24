@@ -1,21 +1,21 @@
-import re
+from __future__ import annotations
 from datetime import datetime, timedelta
+from typing import List, Union, IO
 import calendar
-import subprocess
-import time
-from typing import List, Union
 import os
+import queue
+import re
+import subprocess
 import sys
+import threading
 
 # todo: allow manual decrease of last_call
 # todo: better track/check file change (akelpad)
-# todo: await file change event instead of checking file every second
 # todo: allow time without seconds
 # todo: check tasks to be unique?
 # todo: save checkpoint if task was just executed, and next one is later then (next checkpoint)?
 # todo: support for concrete dates
 # todo: end time for task (0 0 0 - 5 0 0 echo "sleep")
-# todo: fix task executing multiple times, if such times passed while it was executing (* * * * * *  beep && akelpad)
 # todo: do not execute task, if updated, and time passed (* 0 45 -> * 1 0, now = 1:15)
 # todo: why huge CPU load for XLS file, that is already open?
 # todo: test daylight saving time
@@ -86,6 +86,8 @@ class LastCall:
 
 
 class Task:
+    __process: Union[subprocess.Popen, None] = None
+
     def __init__(self,
                  original_string: str,
                  months: str,
@@ -111,11 +113,16 @@ class Task:
         self.__last_call = _last_call
         self.__clock = clock
         self.__creation_time = clock.time()
-        self.__process: Union[subprocess.Popen, None] = None
         self.__expected_last_call(datetime(3000, 1, 1))  # todo: check if it may ever be called
 
+    def __del__(self) -> None:
+        process = self.__get_running_process()
+        if process:
+            process.terminate()
+            process.wait(5)
+
     @staticmethod
-    def from_string(string: str, clock: Clock):
+    def from_string(string: str, clock: Clock) -> Union[Task, None]:
         global pattern, beginning, comment, last_call, end
 
         if re.match(beginning + comment, string) or re.match(beginning + end, string):
@@ -170,10 +177,8 @@ class Task:
                 return _calls
 
     def execute(self) -> None:
-        if self.__process:
-            if self.__process.poll() is None:
-                return
-            self.__process = None
+        if self.__get_running_process():
+            return
         self.__run()
         self.__set_last_call(self.__clock.time())
 
@@ -264,6 +269,11 @@ class Task:
         else:
             self.__last_call = LastCall(_datetime, 2)
 
+    def __get_running_process(self) -> Union[subprocess.Popen, None]:
+        if self.__process and self.__process.poll() is not None:
+            self.__process = None
+        return self.__process
+
     @staticmethod
     def __year_start(base: datetime) -> datetime:
         return base.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -304,14 +314,17 @@ class Event:
 
 
 class Cronus:
-    def __init__(self, clock: Clock, sleep_interval_seconds: float = 5):
+    __file_watching_process: Union[subprocess.Popen, None]
+
+    def __init__(self, filename: str, clock: Clock, sleep_interval_seconds: float = 5):
         self.__clock = clock  # workaround, because python's unittest cannot mock with lambda
         self.__queue_interval = timedelta(days=1)
         self.__wakeup_interval_seconds = timedelta(minutes=10).total_seconds()
         self.__saving_interval = timedelta(minutes=5)
         self.__sleep_interval_seconds = sleep_interval_seconds
-        self.__filename = \
-            self.__tasks = \
+        self.__filename = filename
+        self.__file_watching_queue = queue.Queue()
+        self.__tasks = \
             self.__lines = \
             self.__next_events = \
             self.__time = \
@@ -320,13 +333,38 @@ class Cronus:
 
     def __del__(self):
         self.__write()
+        for task in self.__tasks.values():
+            task.__del__()
+        if self.__file_watching_process:
+            self.__file_watching_process.terminate()
+            self.__file_watching_process.wait(5)
 
-    def run(self, filename: str) -> None:
-        self.__filename = filename
+    def run(self) -> None:
+        self.__file_watching_process = subprocess.Popen(("inotifywait",
+                                                         "--monitor",
+                                                         "--event",
+                                                         "CLOSE_WRITE",
+                                                         self.__filename),
+                                                        stdout=subprocess.PIPE)
+
+        def enqueue_output(out: IO, _queue: queue.Queue) -> None:
+            for line in iter(out.readline, b''):
+                _queue.put(line)
+            out.close()
+
+        t = threading.Thread(target=enqueue_output,
+                             args=(self.__file_watching_process.stdout, self.__file_watching_queue))
+        t.daemon = True
+        t.start()
+
         self.__update_time()
         self.__read()
         self.__checkpoint = self.__last_checkpoint()
-        self.__main_activity()
+        try:
+            self.__main_activity()
+        except Exception:
+            self.__del__()
+            raise
 
     def __read(self) -> None:
         self.__tasks = {}
@@ -341,7 +379,6 @@ class Cronus:
                 alert(exception)
             if task:
                 self.__tasks[task_id] = task
-        self.__write()
 
     def __write(self) -> None:
         if self.__tasks and self.__lines:
@@ -349,9 +386,11 @@ class Cronus:
             for task_id, task in self.__tasks.items():
                 new_lines[task_id] = str(task) + '\n'
             if new_lines != self.__lines:
-                self.__check_file()
                 with open(self.__filename, 'w') as file:
                     file.writelines(new_lines)
+                while not self.__file_changed(1.):
+                    pass
+                self.__clear_file_changes_queue()
                 self.__lines = new_lines
                 self.__mtime = os.path.getmtime(self.__filename)
             self.__checkpoint = self.__time
@@ -426,10 +465,9 @@ class Cronus:
     def __sleep(self, until: datetime) -> None:
         until = until.timestamp()
         while True:
-            self.__check_file()
             seconds_to_event = until - self.__clock.time().timestamp()
             if seconds_to_event > 0:
-                time.sleep(min((seconds_to_event, self.__sleep_interval_seconds)))
+                self.__watch_file(min((seconds_to_event, self.__sleep_interval_seconds)))
             else:
                 overdue = -seconds_to_event
                 if overdue < self.__wakeup_interval_seconds:
@@ -437,9 +475,21 @@ class Cronus:
                 else:
                     raise WakeUpException
 
-    def __check_file(self) -> None:
-        if os.path.getmtime(self.__filename) != self.__mtime:
+    def __watch_file(self, timeout_seconds: float) -> None:
+        if self.__file_changed(timeout_seconds):
+            self.__clear_file_changes_queue()
             raise FileChangedException
+
+    def __file_changed(self, timeout_seconds: float) -> bool:
+        try:
+            self.__file_watching_queue.get(True, timeout_seconds)
+            return True
+        except queue.Empty:
+            return False
+
+    def __clear_file_changes_queue(self) -> None:
+        while not self.__file_watching_queue.empty():
+            self.__file_watching_queue.queue.clear()
 
     def __update_time(self) -> None:
         self.__time = self.__clock.time()
@@ -447,7 +497,7 @@ class Cronus:
 
 if __name__ == '__main__':
     try:
-        Cronus(Clock()).run(sys.argv[1])
+        Cronus(sys.argv[1], Clock()).run()
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as base_exception:
