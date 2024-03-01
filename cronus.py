@@ -320,7 +320,7 @@ class Cronus:
         self.__clock = clock  # workaround, because python's unittest cannot mock with lambda
         self.__queue_interval = timedelta(days=1)
         self.__wakeup_interval_seconds = timedelta(minutes=10).total_seconds()
-        self.__saving_interval = timedelta(minutes=5)
+        self.__saving_interval = timedelta(seconds=5)
         self.__sleep_interval_seconds = sleep_interval_seconds
         self.__filename = filename
         self.__file_watching_queue = queue.Queue()
