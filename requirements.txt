@@ -1,4 +1,6 @@
-python-dateutil==2.8.1
-# for unittest
-six==1.14.0
-typing==3.7.4.1
+my @ git+https://github.com/0leksandr/my.py@3570aa466873b932ef5369d078328839b69b2f7a
+python-dateutil==2.9.0.post0
+setuptools==80.9.0
+six==1.17.0
+typing==3.7.4.3
+wheel==0.45.1

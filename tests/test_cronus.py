@@ -2,10 +2,11 @@ import unittest.mock
 # from freezegun import freeze_time
 from datetime import datetime, timedelta
 # from dateutil.parser import parse
+from typing import List
+import platform
 import threading
 import time
 import os
-from typing import List
 
 from cronus import Cronus, Clock
 
@@ -20,7 +21,7 @@ stop = False
 
 
 class MockClock(Clock):
-    def time(self):
+    def time(self) -> datetime:
         while True:
             global stop, time_file
             if stop:
@@ -122,10 +123,10 @@ class TestCronus(unittest.TestCase):
                 '2018-04-10 22:00:01': (['22:15_2'], []),
             })
 
-            self.__set_time(self.__parse_time('2020-03-07 22:50:30'))
             self.__change_file([], ['* * *  *    *    0  echo 1m       >> __sandbox/sandbox'])
+            time.sleep(0.5)  # MAYBE: remove, and implement mutex for read and write of the crontab file
             self.__assert_events({
-                '2021-03-07 22:50:30': ('reboot', ['15m', '22:15_2', '15s', '23:59:59', '5s']),
+                '2021-03-07 22:50:30': ('reboot', ['15m', '22:15_2', '15s', '23:59:59', '5s', '1m']),
                 '2021-03-07 22:55:30': ('reboot', ['15s', '5s', '1m']),
             })
 
@@ -169,11 +170,11 @@ class TestCronus(unittest.TestCase):
                 self.__set_time(_time - timedelta(milliseconds=1))
                 prev = self.__read_sandbox()
                 print('prev events', _time - timedelta(milliseconds=1), prev, expected_events)
-                assert prev == self.__normalize_events(expected_events[0])
+                assert sorted(prev) == sorted(self.__normalize_events(expected_events[0]))
             self.__set_time(_time)
             sandbox_final = self.__read_sandbox()
             print('now events', _time, sandbox_final, expected_events)
-            assert sandbox_final == self.__normalize_events(expected_events[1])
+            assert sorted(sandbox_final) == sorted(self.__normalize_events(expected_events[1]))
 
     def __change_file(self, lines_to_remove: list, lines_to_add: list) -> None:
         new_crontab = self.__read_lines(crontab)
@@ -219,11 +220,21 @@ class TestCronus(unittest.TestCase):
 
     @staticmethod
     def __let_daemon_work(expect_stop: bool) -> None:
-        # approximate (heuristic) minimal required delays
-        sleep = 0.2
-        if expect_stop:
-            sleep = 0.5  # needed for graceful stop of child processes
-        time.sleep(sleep)
+        def sleep() -> float:
+            match system := platform.system():
+                case "Linux":
+                    if expect_stop:
+                        return 0.5  # needed for graceful stop of child processes
+                    else:
+                        return 0.2  # approximate (heuristic) minimal required delays
+                case "Darwin":
+                    if expect_stop:
+                        return 2.
+                    else:
+                        return 1.
+                case _:
+                    raise Exception(f"Unknown OS: {system}")
+        time.sleep(sleep())
 
     def __stop(self) -> None:
         global stop

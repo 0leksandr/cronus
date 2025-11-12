@@ -1,8 +1,9 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
-from typing import List, Union, IO
+from typing import Union, IO
 import calendar
 import os
+import platform
 import queue
 import re
 import subprocess
@@ -49,7 +50,7 @@ def alert(error):
 
 
 class Clock:
-    def time(self):
+    def time(self) -> datetime:
         return datetime.now()
 
 
@@ -146,7 +147,7 @@ class Task:
         __last_call = self.__last_call.datetime if self.__last_call else self.__creation_time
         return __last_call < self.__expected_last_call()
 
-    def calls(self, _from: datetime, _to: datetime) -> List[datetime]:
+    def calls(self, _from: datetime, _to: datetime) -> list[datetime]:
         _calls = []
         _from = max(_from, self.__last_call.datetime + timedelta(microseconds=1)) if self.__last_call else _from
         year = self.__year_start(_from)
@@ -197,7 +198,7 @@ class Task:
         else:
             raise Exception(type(other))
 
-    def __values(self, value: str, _min: int, _max: int) -> List[int]:
+    def __values(self, value: str, _min: int, _max: int) -> list[int]:
         values = sorted(list(set(self.__calc_values(value, _min, _max))))
         for v in values:
             if not _min <= v <= _max:
@@ -205,7 +206,7 @@ class Task:
         return values
 
     @staticmethod
-    def __calc_values(value: str, _min: int, _max: int) -> List[int]:
+    def __calc_values(value: str, _min: int, _max: int) -> list[int]:
         values = []
         for value in value.split(','):
             if value.isdigit():
@@ -216,15 +217,13 @@ class Task:
                     values += list(_range)
                 elif value[:2] == '*/':
                     values += [v for v in _range if v % int(value[2:]) == 0]
+                elif match := re.search('(\\d+)-(\\d+)', value):
+                    value = [int(v) for v in match.groups()]
+                    if value[1] <= value[0]:
+                        raise Exception('Incorrect bounds')
+                    values += list(range(value[0], value[1] + 1))
                 else:
-                    match = re.search('(\\d+)-(\\d+)', value)
-                    if match:
-                        value = [int(v) for v in match.groups()]
-                        if value[1] <= value[0]:
-                            raise Exception('Incorrect bounds')
-                        values += list(range(value[0], value[1] + 1))
-                    else:
-                        raise Exception('Unknown format')
+                    raise Exception('Unknown format')
         return values
 
     def __expected_last_call(self, now: datetime = None) -> datetime:
@@ -308,13 +307,15 @@ class WakeUpException(Exception):
 
 
 class Event:
-    def __init__(self, _datetime: datetime, tasks: List[Task]):
+    def __init__(self, _datetime: datetime, tasks: list[Task]):
         self.datetime = _datetime
         self.tasks = tasks
 
 
 class Cronus:
     __file_watching_process: Union[subprocess.Popen, None]
+    __tasks: dict[int, Task] = {}
+    __next_events: list[Event] = []
 
     def __init__(self, filename: str, clock: Clock, sleep_interval_seconds: float = 5):
         self.__clock = clock  # workaround, because python's unittest cannot mock with lambda
@@ -324,9 +325,7 @@ class Cronus:
         self.__sleep_interval_seconds = sleep_interval_seconds
         self.__filename = filename
         self.__file_watching_queue = queue.Queue()
-        self.__tasks = \
-            self.__lines = \
-            self.__next_events = \
+        self.__lines = \
             self.__time = \
             self.__checkpoint = \
             self.__mtime = None
@@ -340,12 +339,23 @@ class Cronus:
             self.__file_watching_process.wait(5)
 
     def run(self) -> None:
-        self.__file_watching_process = subprocess.Popen(("inotifywait",
-                                                         "--monitor",
-                                                         "--event",
-                                                         "CLOSE_WRITE",
-                                                         self.__filename),
-                                                        stdout=subprocess.PIPE)
+        match system := platform.system():
+            case "Linux":
+                self.__file_watching_process = subprocess.Popen(("inotifywait",
+                                                                 "--monitor",
+                                                                 "--event",
+                                                                 "CLOSE_WRITE",
+                                                                 self.__filename),
+                                                                stdout=subprocess.PIPE)
+            case "Darwin":
+                self.__file_watching_process = subprocess.Popen(("fswatch",
+                                                                 "--one-per-batch",
+                                                                 "--event",
+                                                                 "Updated",
+                                                                 self.__filename),
+                                                                stdout=subprocess.PIPE)
+            case _:
+                raise Exception(f"Unknown OS: {system}")
 
         def enqueue_output(out: IO, _queue: queue.Queue) -> None:
             for line in iter(out.readline, b''):
@@ -358,13 +368,22 @@ class Cronus:
         t.start()
 
         self.__update_time()
-        self.__read()
         self.__checkpoint = self.__last_checkpoint()
-        try:
-            self.__main_activity()
-        except Exception:
-            self.__del__()
-            raise
+        while True:
+            try:
+                old_tasks = self.__tasks
+                self.__read()
+                for task_id, task in self.__tasks.items():
+                    for old_task in old_tasks.values():
+                        if task.equals(old_task):
+                            if task.get_last_call().is_less(old_task.get_last_call()):
+                                self.__tasks[task_id].copy_last_call(old_task)
+                self.__main_activity()
+            except (FileChangedException, WakeUpException):
+                continue
+            except Exception:
+                self.__del__()
+                raise
 
     def __read(self) -> None:
         self.__tasks = {}
@@ -399,24 +418,12 @@ class Cronus:
         self.__update_time()
         self.__run_skipped()
         self.__next_events = []
-        try:
-            while True:
-                next_event = self.__next_event()
-                if next_event.datetime > self.__clock.time():
-                    self.__wait(next_event.datetime)
-                for task in next_event.tasks:
-                    task.execute()
-        except FileChangedException:
-            old_tasks = self.__tasks
-            self.__read()
-            for task_id, task in self.__tasks.items():
-                for old_task in old_tasks.values():
-                    if task.equals(old_task):
-                        if task.get_last_call().is_less(old_task.get_last_call()):
-                            self.__tasks[task_id].copy_last_call(old_task)
-            self.__main_activity()
-        except WakeUpException:
-            self.__main_activity()
+        while True:
+            next_event = self.__next_event()
+            if next_event.datetime > self.__clock.time():
+                self.__wait(next_event.datetime)
+            for task in next_event.tasks:
+                task.execute()
 
     def __run_skipped(self) -> None:
         for task in self.__tasks.values():
@@ -430,7 +437,7 @@ class Cronus:
                 self.__wait(self.__time + self.__queue_interval)
         return self.__next_events.pop(0)
 
-    def __determine_next_events(self) -> List[Event]:  # todo: simplify (remove useless cycles)
+    def __determine_next_events(self) -> list[Event]:  # todo: simplify (remove useless cycles)
         next_events_dic = {}
         for task_id, task in self.__tasks.items():
             next_events_dic[task_id] = task.calls(self.__time, self.__time + self.__queue_interval)
