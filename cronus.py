@@ -77,8 +77,10 @@ class LastCall:
     def __str__(self) -> str:
         if self.format == last_call_fmt_timestamp:
             return str(int(self.datetime.timestamp()))
-        if self.format == last_call_fmt_datetime:
+        elif self.format == last_call_fmt_datetime:
             return self.datetime.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            raise Exception(f"Unknown format: {self.format}")
 
     def is_less(self, other: object) -> bool:
         if isinstance(other, LastCall):
