@@ -39,14 +39,14 @@ beginning = '^' + sep + '*'
 pattern = beginning + (nr + sep + '+') * 6 + '(' + command + ')' + '(' + comment + ')?' + end
 
 
-def alert(error):
+def alert(error: str | BaseException) -> None:
     # print(traceback.format_exc())
     error = str(error).replace('"', '\\"')
     _traceback = sys.exc_info()[2]
     if _traceback:
         filename = os.path.split(_traceback.tb_frame.f_code.co_filename)[1]
         error += " at " + filename + ":" + str(_traceback.tb_lineno)
-    subprocess.call('notify-send "' + Cronus.__name__ + ': ' + error + '"', shell=True)
+    subprocess.call(f"alert \"{Cronus.__name__}: {error}\"", shell=True)
 
 
 class Clock:
@@ -101,7 +101,7 @@ class Task:
                  seconds: str,
                  _command: str,
                  _last_call: LastCall,
-                 clock: Clock):
+                 clock: Clock) -> None:
         self.__original_string = original_string
         self.__months = self.__values(months, 1, 12)
         self.__days = self.__values(days, 1, 31)
@@ -119,8 +119,7 @@ class Task:
         self.__expected_last_call(datetime(3000, 1, 1))  # todo: check if it may ever be called
 
     def __del__(self) -> None:
-        process = self.__get_running_process()
-        if process:
+        if process := self.__get_running_process():
             process.terminate()
             process.wait(5)
 
@@ -309,7 +308,7 @@ class WakeUpException(Exception):
 
 
 class Event:
-    def __init__(self, _datetime: datetime, tasks: list[Task]):
+    def __init__(self, _datetime: datetime, tasks: list[Task]) -> None:
         self.datetime = _datetime
         self.tasks = tasks
 
@@ -319,7 +318,10 @@ class Cronus:
     __tasks: dict[int, Task] = {}
     __next_events: list[Event] = []
 
-    def __init__(self, filename: str, clock: Clock, sleep_interval_seconds: float = 5):
+    def __init__(self,
+                 filename: str,
+                 clock: Clock,
+                 sleep_interval_seconds: float = 5) -> None:
         self.__clock = clock  # workaround, because python's unittest cannot mock with lambda
         self.__queue_interval = timedelta(days=1)
         self.__wakeup_interval_seconds = timedelta(minutes=10).total_seconds()
@@ -327,12 +329,12 @@ class Cronus:
         self.__sleep_interval_seconds = sleep_interval_seconds
         self.__filename = filename
         self.__file_watching_queue = queue.Queue()
-        self.__lines = \
-            self.__time = \
+        self.__lines: list[str] = []
+        self.__time = \
             self.__checkpoint = \
             self.__mtime = None
 
-    def __del__(self):
+    def __del__(self) -> None:
         self.__write()
         for task in self.__tasks.values():
             task.__del__()
