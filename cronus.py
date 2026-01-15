@@ -360,7 +360,14 @@ class Cronus:
         while True:
             try:
                 self.__read()
-                self.__main_activity()
+                self.__update_time()
+                self.__run_skipped()
+                while True:
+                    next_event = self.__next_event()
+                    if next_event.datetime > self.__clock.time():
+                        self.__wait(next_event.datetime)
+                    for task in next_event.tasks:
+                        task.execute()
             except (FileChangedException, WakeUpException):
                 continue
             except Exception:
@@ -392,6 +399,8 @@ class Cronus:
                 updated_tasks[new_task_id] = new_task
         self.__tasks = updated_tasks
 
+        self.__next_events = []
+
     def __write(self) -> None:
         if self.__tasks and self.__lines:
             new_lines = self.__lines[:]
@@ -407,17 +416,6 @@ class Cronus:
                 self.__mtime = os.path.getmtime(self.__filename)
             self.__checkpoint = self.__time
 
-    def __main_activity(self) -> None:
-        self.__update_time()
-        self.__run_skipped()
-        self.__next_events = []
-        while True:
-            next_event = self.__next_event()
-            if next_event.datetime > self.__clock.time():
-                self.__wait(next_event.datetime)
-            for task in next_event.tasks:
-                task.execute()
-
     def __run_skipped(self) -> None:
         for task in self.__tasks.values():
             if task.skipped():
@@ -430,7 +428,7 @@ class Cronus:
                 self.__wait(self.__time + self.__queue_interval)
         return self.__next_events.pop(0)
 
-    def __determine_next_events(self) -> list[Event]:  # todo: simplify (remove useless cycles)
+    def __determine_next_events(self) -> list[Event]:  # TODO: simplify (remove useless cycles)
         next_events_dic = {}
         for task_id, task in self.__tasks.items():
             next_events_dic[task_id] = task.calls(self.__time, self.__time + self.__queue_interval)
