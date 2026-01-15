@@ -317,6 +317,7 @@ class Cronus:
     __file_watching_process: Union[subprocess.Popen, None]
     __tasks: dict[int, Task] = {}
     __next_events: list[Event] = []
+    __lines: list[str] = []
 
     def __init__(self,
                  filename: str,
@@ -329,15 +330,12 @@ class Cronus:
         self.__sleep_interval_seconds = sleep_interval_seconds
         self.__filename = filename
         self.__file_watching_queue = queue.Queue()
-        self.__lines: list[str] = []
         self.__time = \
             self.__checkpoint = \
             self.__mtime = None
 
     def __del__(self) -> None:
         self.__write()
-        for task in self.__tasks.values():
-            task.__del__()
         if self.__file_watching_process:
             self.__file_watching_process.terminate()
             self.__file_watching_process.wait(5)
@@ -375,13 +373,7 @@ class Cronus:
         self.__checkpoint = self.__last_checkpoint()
         while True:
             try:
-                old_tasks = self.__tasks
                 self.__read()
-                for task_id, task in self.__tasks.items():
-                    for old_task in old_tasks.values():
-                        if task.equals(old_task):
-                            if task.get_last_call().is_less(old_task.get_last_call()):
-                                self.__tasks[task_id].copy_last_call(old_task)
                 self.__main_activity()
             except (FileChangedException, WakeUpException):
                 continue
@@ -390,18 +382,29 @@ class Cronus:
                 raise
 
     def __read(self) -> None:
-        self.__tasks = {}
+        new_tasks: dict[int, Task] = {}
         self.__mtime = os.path.getmtime(self.__filename)
         with open(self.__filename, 'r') as file:
             self.__lines = file.readlines()
         for task_id in range(len(self.__lines)):
-            task = None
             try:
-                task = Task.from_string(self.__lines[task_id], self.__clock)
+                if task := Task.from_string(self.__lines[task_id], self.__clock):
+                    new_tasks[task_id] = task
             except Exception as exception:
                 alert(exception)
-            if task:
-                self.__tasks[task_id] = task
+
+        updated_tasks: dict[int, Task] = {}
+        for new_task_id, new_task in new_tasks.items():
+            if new_task_id in self.__tasks:
+                old_task = self.__tasks[new_task_id]
+                if new_task.equals(old_task):
+                    old_task.copy_last_call(new_task)
+                    updated_tasks[new_task_id] = old_task
+                else:
+                    updated_tasks[new_task_id] = new_task
+            else:
+                updated_tasks[new_task_id] = new_task
+        self.__tasks = updated_tasks
 
     def __write(self) -> None:
         if self.__tasks and self.__lines:
