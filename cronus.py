@@ -59,33 +59,30 @@ last_call_fmt_datetime = 2
 
 
 class LastCall:
-    def __init__(self, _datetime: datetime, _format: int):
+    def __init__(self, _datetime: datetime, _format: int) -> None:
         self.datetime = _datetime
         self.format = _format
 
     @staticmethod
-    def from_string(string: str):
-        _last_call = re.search('^.+' + last_call + end, string)
-        if _last_call:
+    def from_string(string: str) -> LastCall | None:
+        if _last_call := re.search("^.+" + last_call + end, string):
             _last_call = _last_call.group(1)
             if _last_call.isdigit():
                 return LastCall(datetime.fromtimestamp(int(_last_call)), last_call_fmt_timestamp)
             else:
-                return LastCall(datetime.strptime(_last_call, '%Y-%m-%d %H:%M:%S'), last_call_fmt_datetime)
+                return LastCall(datetime.strptime(_last_call, "%Y-%m-%d %H:%M:%S"), last_call_fmt_datetime)
         return None
 
     def __str__(self) -> str:
         if self.format == last_call_fmt_timestamp:
             return str(int(self.datetime.timestamp()))
         elif self.format == last_call_fmt_datetime:
-            return self.datetime.strftime('%Y-%m-%d %H:%M:%S')
+            return self.datetime.strftime("%Y-%m-%d %H:%M:%S")
         else:
             raise Exception(f"Unknown format: {self.format}")
 
-    def is_less(self, other: object) -> bool:
-        if isinstance(other, LastCall):
-            return self.datetime.timestamp() < other.datetime.timestamp()
-        raise Exception(type(other))
+    def is_less(self, other: LastCall) -> bool:
+        return self.datetime.timestamp() < other.datetime.timestamp()
 
 
 class Task:
@@ -184,20 +181,12 @@ class Task:
         self.__run()
         self.__set_last_call(self.__clock.time())
 
-    def equals(self, other: object) -> bool:  # todo: cover with test
-        if isinstance(other, Task):
-            return self.__original_string == other.__original_string
-        raise Exception(type(other))
+    def equals(self, other: Task) -> bool:  # todo: cover with test
+        return self.__original_string == other.__original_string
 
-    def get_last_call(self) -> LastCall:
-        return self.__last_call
-
-    def copy_last_call(self, other: object) -> None:
-        if isinstance(other, Task):
-            if other.__last_call:
-                self.__set_last_call(other.__last_call.datetime)
-        else:
-            raise Exception(type(other))
+    def copy_last_call(self, other: Task) -> None:
+        if self.__last_call.is_less(other.__last_call):
+            self.__set_last_call(other.__last_call.datetime)
 
     def __values(self, value: str, _min: int, _max: int) -> list[int]:
         values = sorted(list(set(self.__calc_values(value, _min, _max))))
@@ -264,10 +253,7 @@ class Task:
             alert(exception)
 
     def __set_last_call(self, _datetime: datetime) -> None:
-        if self.__last_call:
-            self.__last_call.datetime = _datetime
-        else:
-            self.__last_call = LastCall(_datetime, 2)
+        self.__last_call.datetime = _datetime
 
     def __get_running_process(self) -> Union[subprocess.Popen, None]:
         if self.__process and self.__process.poll() is not None:
