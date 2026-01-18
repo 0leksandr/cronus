@@ -1,4 +1,5 @@
 my @ git+https://github.com/0leksandr/my.py@cd27c5b76e08b44404f48275f8afbc6d7181f0f6
+psutil==7.2.1
 python-dateutil==2.9.0.post0
 setuptools==80.9.0
 six==1.17.0

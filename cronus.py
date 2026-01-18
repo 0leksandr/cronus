@@ -4,6 +4,7 @@ from typing import Union, IO
 import calendar
 import os
 import platform
+import psutil
 import queue
 import re
 import subprocess
@@ -117,8 +118,35 @@ class Task:
 
     def __del__(self) -> None:
         if process := self.__get_running_process():
-            process.terminate()
-            process.wait(5)
+            # process.terminate()
+            # process.wait(5)
+
+            # try:
+            #     os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            # except ProcessLookupError:
+            #     pass
+            # process.wait(5)
+
+            try:
+                parent = psutil.Process(process.pid)
+                children = parent.children(recursive=True)
+
+                for child in children:
+                    try:
+                        child.terminate()
+                    except psutil.NoSuchProcess:
+                        pass
+                parent.terminate()
+
+                gone, alive = psutil.wait_procs(children + [parent], timeout=5)
+
+                for p in alive:
+                    try:
+                        p.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+            except psutil.NoSuchProcess:
+                pass
 
     @staticmethod
     def from_string(string: str, clock: Clock) -> Union[Task, None]:
