@@ -277,6 +277,7 @@ class Task:
     def __run(self) -> None:
         try:
             self.__process = subprocess.Popen(self.__command, shell=True)
+            # self.__process = subprocess.Popen(self.__command, env=os.environ)
         except Exception as exception:
             alert(exception)
 

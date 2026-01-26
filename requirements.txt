@@ -1,7 +1,8 @@
-my @ git+https://github.com/0leksandr/my.py@cd27c5b76e08b44404f48275f8afbc6d7181f0f6
+my @ git+https://github.com/0leksandr/my.py@567134c17542c5c2c25fc48b7189a490d37f13e8
+packaging==26.0
 psutil==7.2.1
 python-dateutil==2.9.0.post0
-setuptools==80.9.0
+setuptools==80.10.2
 six==1.17.0
 typing==3.7.4.3
-wheel==0.45.1
+wheel==0.46.3
