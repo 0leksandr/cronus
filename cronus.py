@@ -382,7 +382,7 @@ class Cronus:
         t = threading.Thread(target=enqueue_output,
                              args=(self.__file_watching_process.stdout, self.__file_watching_queue))
         t.daemon = True
-        t.start()
+        t.start()  # MAYBE: kill in __del__
 
         self.__update_time()
         self.__checkpoint = self.__last_checkpoint()
@@ -438,8 +438,11 @@ class Cronus:
             if new_lines != self.__lines:
                 with open(self.__filename, 'w') as file:
                     file.writelines(new_lines)
-                while not self.__file_changed(1.):
-                    pass
+
+                # while not self.__file_changed(1.): # sometimes gets stuck on start
+                #     pass
+                self.__file_changed(1.)
+
                 self.__clear_file_changes_queue()
                 self.__lines = new_lines
                 self.__mtime = os.path.getmtime(self.__filename)
