@@ -1,13 +1,12 @@
-import unittest
+from __future__ import annotations
 from unittest_data_provider import data_provider
 from datetime import datetime, timedelta
 from dateutil.parser import parse
-from typing import List, Tuple
+from typing import Generator, Optional
 # from freezegun import freeze_time
+import time
+import unittest
 
-# import sys
-# import os
-# sys.path.append(os.path.abspath(".."))
 from cronus import Task, Clock
 
 
@@ -28,7 +27,7 @@ class TestTask(unittest.TestCase):
                         __command + ' "#c"',
                         __command + ' \'#d \' "#e " \'# f\' "# g"')
 
-    def correct_strings(self) -> List[str]:
+    def correct_strings(self) -> Generator[str]:
         correct_beginnings = correct_delimiters = (
             # ' ',
             # '\t',
@@ -156,16 +155,16 @@ class TestTask(unittest.TestCase):
          {0: '2019-04-12 03:23:01', 58: '2019-04-12 03:23:59'}),
     ]
 
-    def to_string_provider(self) -> Tuple[str, str, datetime]:
+    def to_string_provider(self) -> Generator[tuple[str, datetime, bool, str]]:
         _time = '* * * * * * '
         for command in self.correct_commands:
             __timestamp_ = ' #' + str(int(parse('2017-11-16 23:59:59').timestamp()))
             for vv in (
                     ('',                      '2017-11-16 23:59:59', False, ' #2017-11-16 23:59:59'),
-                    (' #123',                 '2017-11-16 23:59:59', False, ' #123'),
+                    (' #123',                 '2017-11-16 23:59:59', False, ' #123'                ),
                     (' #2016-10-04 17:18:24', '2017-11-16 23:59:59', False, ' #2016-10-04 17:18:24'),
                     ('',                      '2017-11-16 23:59:59', True,  ' #2017-11-16 23:59:59'),
-                    (' #123',                 '2017-11-16 23:59:59', True,  __timestamp_),
+                    (' #123',                 '2017-11-16 23:59:59', True,  __timestamp_           ),
                     (' #2016-10-04 17:18:24', '2017-11-16 23:59:59', True,  ' #2017-11-16 23:59:59'),
             ):
                 original_last_call = vv[0]
@@ -214,12 +213,19 @@ class TestTask(unittest.TestCase):
         task = Task.from_string(original, MockClock(_datetime))
         if execute:
             task.execute()
+            time.sleep(0.05)
         assert str(task) == expected
 
-    def __task(self, time: str, command: bool = True, last_call: datetime = None, now: datetime = None):
+    def __task(self,
+               time: str,
+               command: bool = True,
+               last_call: Optional[datetime] = None,
+               now: Optional[datetime] = None) -> Task:
         string = time
         if command:
             string += ' ' + self.__command
         if last_call:
             string += ' #' + str(int(last_call.timestamp()))
-        return Task.from_string(string, MockClock(now) if now else Clock())
+        task = Task.from_string(string, MockClock(now) if now else Clock())
+        self.assertIsNotNone(task)
+        return task

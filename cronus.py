@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
-from typing import Union, IO
+from typing import Union, IO, Optional
 import calendar
 import os
 import platform
@@ -46,7 +46,7 @@ def alert(error: str | BaseException) -> None:
     _traceback = sys.exc_info()[2]
     if _traceback:
         filename = os.path.split(_traceback.tb_frame.f_code.co_filename)[1]
-        error += " at " + filename + ":" + str(_traceback.tb_lineno)
+        error += f" at {filename}:{_traceback.tb_lineno}"
     subprocess.call(f"alert \"{Cronus.__name__}: {error}\"", shell=True)
 
 
@@ -244,7 +244,7 @@ class Task:
                     raise Exception('Unknown format')
         return values
 
-    def __expected_last_call(self, now: datetime = None) -> datetime:
+    def __expected_last_call(self, now: Optional[datetime] = None) -> datetime:
         if not now:
             now = self.__clock.time()
         years = 0
@@ -304,7 +304,9 @@ class Task:
         return base.replace(year=year, month=month)
 
     @staticmethod
-    def __is_correct_date(base: datetime, day: int = None, weekday: int = None) -> bool:
+    def __is_correct_date(base: datetime,
+                          day: Optional[int] = None,
+                          weekday: Optional[int] = None) -> bool:
         if day is not None:
             if day > calendar.monthrange(base.year, base.month)[1]:
                 return False
