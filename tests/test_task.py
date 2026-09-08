@@ -195,8 +195,8 @@ class TestTask(unittest.TestCase):
         expected_last_call = parse(expected_last_call)
         assert self\
             .__task(task, True, expected_last_call - timedelta(microseconds=1), now)\
-            .skipped() is True
-        assert self.__task(task, True, expected_last_call, now).skipped() is False
+            .is_skipped()
+        assert not self.__task(task, True, expected_last_call, now).is_skipped()
 
     @data_provider(calls_provider)
     def test_calls(self, task: str, last_call: str, _from: str, _to: str, expected_calls: dict) -> None:

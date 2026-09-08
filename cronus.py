@@ -101,15 +101,15 @@ class Task:
                  _last_call: LastCall,
                  clock: Clock) -> None:
         self.__original_string = original_string
-        self.__months = self.__values(months, 1, 12)
-        self.__days = self.__values(days, 1, 31)
-        self.__weekdays = self.__values(weekdays, 1, 7)
+        self.__months = Task.__values(months, 1, 12)
+        self.__days = Task.__values(days, 1, 31)
+        self.__weekdays = Task.__values(weekdays, 1, 7)
         if 7 in self.__weekdays:
             self.__weekdays.remove(7)
             self.__weekdays.insert(0, 0)
-        self.__hours = self.__values(hours, 0, 23)
-        self.__minutes = self.__values(minutes, 0, 59)
-        self.__seconds = self.__values(seconds, 0, 59)
+        self.__hours = Task.__values(hours, 0, 23)
+        self.__minutes = Task.__values(minutes, 0, 59)
+        self.__seconds = Task.__values(seconds, 0, 59)
         self.__command = _command
         self.__last_call = _last_call
         self.__clock = clock
@@ -167,26 +167,26 @@ class Task:
         return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [_last_call, clock]))
 
     def __str__(self) -> str:
-        return self.__original_string + ' #' + str(self.__last_call)
+        return self.__original_string + ' #' + self.__last_call.__str__()
 
-    def skipped(self) -> bool:
+    def is_skipped(self) -> bool:
         __last_call = self.__last_call.datetime if self.__last_call else self.__creation_time
         return __last_call < self.__expected_last_call()
 
     def calls(self, _from: datetime, _to: datetime) -> list[datetime]:
         _calls = []
         _from = max(_from, self.__last_call.datetime + timedelta(microseconds=1)) if self.__last_call else _from
-        year = self.__year_start(_from)
+        year = Task.__year_start(_from)
         while True:
             for month in self.__months:  # todo: refactor
                 __time = year.replace(month=month)
-                if self.__add_month(__time) >= _from:
+                if Task.__add_month(__time) >= _from:
                     for day in self.__days:
-                        if self.__is_correct_date(__time, day=day):
+                        if Task.__is_correct_date(__time, day=day):
                             __time = __time.replace(day=day)
                             if __time + timedelta(days=1) >= _from:
                                 for weekday in self.__weekdays:
-                                    if self.__is_correct_date(__time, weekday=weekday):
+                                    if Task.__is_correct_date(__time, weekday=weekday):
                                         for hour in self.__hours:
                                             __time = __time.replace(hour=hour)
                                             if __time + timedelta(hours=1) >= _from:
@@ -216,8 +216,9 @@ class Task:
         if self.__last_call.is_less(other.__last_call):
             self.__set_last_call(other.__last_call.datetime)
 
-    def __values(self, value: str, _min: int, _max: int) -> list[int]:
-        values = sorted(list(set(self.__calc_values(value, _min, _max))))
+    @staticmethod
+    def __values(value: str, _min: int, _max: int) -> list[int]:
+        values = sorted(list(set(Task.__calc_values(value, _min, _max))))
         for v in values:
             if not _min <= v <= _max:
                 raise Exception
@@ -248,17 +249,17 @@ class Task:
         if not now:
             now = self.__clock.time()
         years = 0
-        year = self.__year_start(now)
+        year = Task.__year_start(now)
         while True:
             for month in reversed(self.__months):  # todo: refactor
                 __time = year.replace(month=month)
                 if __time <= now:
                     for day in reversed(self.__days):
-                        if self.__is_correct_date(__time, day=day):
+                        if Task.__is_correct_date(__time, day=day):
                             __time = __time.replace(day=day)
                             if __time <= now:
                                 for weekday in reversed(self.__weekdays):
-                                    if self.__is_correct_date(__time, weekday=weekday):
+                                    if Task.__is_correct_date(__time, weekday=weekday):
                                         for hour in reversed(self.__hours):
                                             __time = __time.replace(hour=hour)
                                             if __time <= now:
@@ -436,7 +437,7 @@ class Cronus:
         if self.__tasks and self.__lines:
             new_lines = self.__lines[:]
             for task_id, task in self.__tasks.items():
-                new_lines[task_id] = str(task) + '\n'
+                new_lines[task_id] = task.__str__() + '\n'
             if new_lines != self.__lines:
                 with open(self.__filename, 'w') as file:
                     file.writelines(new_lines)
@@ -452,7 +453,7 @@ class Cronus:
 
     def __run_skipped(self) -> None:
         for task in self.__tasks.values():
-            if task.skipped():
+            if task.is_skipped():
                 task.execute()
 
     def __next_event(self) -> Event:
