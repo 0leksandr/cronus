@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Union, IO, Optional
 import calendar
+import gc
 import os
 import platform
 import psutil
@@ -392,6 +393,7 @@ class Cronus:
         while True:
             try:
                 self.__read()
+                gc.collect()  # PyPy has no refcounting: force collection so old tasks' __del__ runs
                 self.__update_time()
                 self.__run_skipped()
                 while True:
@@ -405,6 +407,8 @@ class Cronus:
             except Exception:
                 self.__del__()
                 raise
+            finally:
+                next_event = task = None  # Release references to old tasks so their __del__ can run
 
     def __read(self) -> None:
         new_tasks: dict[int, Task] = {}
