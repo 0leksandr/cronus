@@ -12,10 +12,10 @@ from cronus import Task, Clock, must
 
 class MockClock(Clock):
     def __init__(self, _time: datetime):
-        self.__time = _time
+        self.now = _time
 
     def time(self):
-        return self.__time
+        return self.now
 
 
 class TestTask(unittest.TestCase):
@@ -166,6 +166,8 @@ class TestTask(unittest.TestCase):
                     ('',                      '2017-11-16 23:59:59', True,  ' #2017-11-16 23:59:59'),
                     (' #123',                 '2017-11-16 23:59:59', True,  __timestamp_           ),
                     (' #2016-10-04 17:18:24', '2017-11-16 23:59:59', True,  ' #2017-11-16 23:59:59'),
+                    (' #123 | 456',           '2017-11-16 23:59:59', False, ' #123 | 456'          ),
+                    (' #123 | 456',           '2017-11-16 23:59:59', True,  __timestamp_           ),
             ):
                 original_last_call = vv[0]
                 date = parse(vv[1])
@@ -215,6 +217,21 @@ class TestTask(unittest.TestCase):
             task.execute()
             time.sleep(0.05)
         assert str(task) == expected
+
+    def test_call_dropped_while_running_is_not_skipped(self) -> None:
+        clock = MockClock(parse('2017-11-16 10:00:00'))
+        task = must(Task.from_string('* * * * * 0 sleep 1 #2000-01-01 00:00:00', clock))
+        task.execute()
+        clock.now = parse('2017-11-16 10:01:00')
+        task.execute()  # still running: the call is dropped
+        assert str(task) == '* * * * * 0 sleep 1 #2017-11-16 10:00:00 | 2017-11-16 10:01:00'
+        time.sleep(1.2)  # let the process finish
+        clock.now = parse('2017-11-16 10:01:30')
+        assert not task.is_skipped()
+        restarted = must(Task.from_string(str(task), clock))  # state survives a daemon restart
+        assert not restarted.is_skipped()
+        clock.now = parse('2017-11-16 10:02:30')
+        assert restarted.is_skipped()
 
     def __task(self,
                _time: str,

@@ -136,6 +136,39 @@ class TestCronus(unittest.TestCase):
             self.__stop()
             self.__write(crontab, initial_crontab)
 
+    def test_long_running_task(self):
+        """
+        A call that comes while the previous run is alive is dropped, and is not caught up later:
+        neither after a crontab edit that moves the task line, nor after a reboot
+        """
+        self.__clear_sandbox()
+        initial_crontab = self.__read_lines(crontab)
+        task = '* * * * * 0 echo start >> __sandbox/sandbox; sleep 30'
+        try:
+            self.__write(crontab, [task + ' #2017-11-18 13:33:00\n'])
+            self.__set_time(self.__parse_time('2017-11-18 13:33:59'))
+            self.__run_daemon_thread()
+            self.__assert_events({
+                '2017-11-18 13:34:00': ([], ['start']),
+                '2017-11-18 13:35:00': ([], []),  # still running: dropped
+            })
+
+            lines = self.__read_lines(crontab)
+            lines.insert(0, '# moved\n')
+            self.__write(crontab, lines)
+            self.__assert_events({
+                '2017-11-18 13:35:01': ([], []),  # line moved: process is kept, not re-run
+                # reboot
+                '2017-11-18 13:35:02': ('reboot', []),  # was alive at 13:35:00: not skipped
+                '2017-11-18 13:36:00': ([], ['start']),
+            })
+
+            self.__stop()
+            assert self.__read_lines(crontab) == ['# moved\n', task + ' #2017-11-18 13:36:00\n']
+        finally:
+            self.__stop()
+            self.__write(crontab, initial_crontab)
+
     # @unittest.mock.patch('datetime.datetime.now', new_callable=_time)
     # @unittest.mock.patch('cronus.time_', side_effect=time2)
     def __run_daemon_thread(self,

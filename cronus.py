@@ -33,9 +33,10 @@ sep = '[ \\t]'
 nr1 = '(?:\\*|\\*/\\d+|\\d+|\\d+-\\d+)'
 nr = '(' + nr1 + '(?:,' + nr1 + ')*' + ')'
 command = '(?:\'[^\']*\'|"[^"]*"|[^#\'"]+)+'
-last_call = ' #(\\d+|\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})'
+time_value = '(\\d+|\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})'
+status = ' #' + time_value + '(?: \\| ' + time_value + ')?'  # called at | alive at
 end = '\\n?$'
-# comment = '#(?:(?!' + last_call + end + ').)*'
+# comment = '#(?:(?!' + status + end + ').)*'
 comment = '#.*'
 beginning = '^' + sep + '*'
 pattern = beginning + (nr + sep + '+') * 6 + '(' + command + ')' + '(' + comment + ')?' + end
@@ -62,35 +63,50 @@ class Clock:
         return datetime.now()
 
 
-last_call_fmt_timestamp = 1
-last_call_fmt_datetime = 2
+status_fmt_timestamp = 1
+status_fmt_datetime = 2
 
 
-class LastCall:
-    def __init__(self, _datetime: datetime, _format: int) -> None:
-        self.datetime = _datetime
+class Status:
+    def __init__(self,
+                 _format: int,
+                 called_at: datetime,
+                 alive_at: Optional[datetime] = None) -> None:
         self.format = _format
+        self.called_at = called_at
+        self.alive_at = alive_at  # last time the process started at `called_at` was seen running
 
     @staticmethod
-    def from_string(string: str) -> LastCall | None:
-        if _last_call := re.search("^.+" + last_call + end, string):
-            _last_call = _last_call.group(1)
-            if _last_call.isdigit():
-                return LastCall(datetime.fromtimestamp(int(_last_call)), last_call_fmt_timestamp)
-            else:
-                return LastCall(datetime.strptime(_last_call, "%Y-%m-%d %H:%M:%S"), last_call_fmt_datetime)
+    def from_string(string: str) -> Status | None:
+        if _status := re.search("^.+" + status + end, string):
+            _called_at, _alive_at = _status.groups()
+            return Status(status_fmt_timestamp if _called_at.isdigit() else status_fmt_datetime,
+                          Status.__parse(_called_at),
+                          Status.__parse(_alive_at) if _alive_at else None)
         return None
 
     def __str__(self) -> str:
-        if self.format == last_call_fmt_timestamp:
-            return str(int(self.datetime.timestamp()))
-        elif self.format == last_call_fmt_datetime:
-            return self.datetime.strftime("%Y-%m-%d %H:%M:%S")
+        string = self.__format(self.called_at)
+        if self.alive_at:
+            string += ' | ' + self.__format(self.alive_at)
+        return string
+
+    def __format(self, _datetime: datetime) -> str:
+        if self.format == status_fmt_timestamp:
+            return str(int(_datetime.timestamp()))
+        elif self.format == status_fmt_datetime:
+            return _datetime.strftime("%Y-%m-%d %H:%M:%S")
         else:
             raise Exception(f"Unknown format: {self.format}")
 
-    def is_less(self, other: LastCall) -> bool:
-        return self.datetime.timestamp() < other.datetime.timestamp()
+    @staticmethod
+    def __parse(string: str) -> datetime:
+        if string.isdigit():
+            return datetime.fromtimestamp(int(string))
+        return datetime.strptime(string, "%Y-%m-%d %H:%M:%S")
+
+    def is_less(self, other: Status) -> bool:
+        return self.called_at.timestamp() < other.called_at.timestamp()
 
 
 class Task:
@@ -105,7 +121,7 @@ class Task:
                  minutes: str,
                  seconds: str,
                  _command: str,
-                 _last_call: LastCall,
+                 _status: Status,
                  clock: Clock) -> None:
         self.__original_string = original_string
         self.__months = Task.__values(months, 1, 12)
@@ -118,9 +134,8 @@ class Task:
         self.__minutes = Task.__values(minutes, 0, 59)
         self.__seconds = Task.__values(seconds, 0, 59)
         self.__command = _command
-        self.__last_call = _last_call
+        self.__status = _status
         self.__clock = clock
-        self.__creation_time = clock.time()
         self.__expected_last_call(datetime(3000, 1, 1))  # todo: check if it may ever be called
 
     def __del__(self) -> None:
@@ -157,7 +172,7 @@ class Task:
 
     @staticmethod
     def from_string(string: str, clock: Clock) -> Union[Task, None]:
-        global pattern, beginning, comment, last_call, end
+        global pattern, beginning, comment, status, end
 
         if re.match(beginning + comment, string) or re.match(beginning + end, string):
             return None
@@ -165,24 +180,24 @@ class Task:
         if not task:
             raise Exception('Wrong format for task: ' + string)
         groups = task.groups()
-        last_call_idx = 7
-        if len(groups) != last_call_idx + 1:
+        status_idx = 7
+        if len(groups) != status_idx + 1:
             raise Exception('Task parsed incorrectly')
-        _last_call = LastCall.from_string(string) or LastCall(clock.time(), last_call_fmt_datetime)
-        string = must(re.match('^((?:(?!' + last_call + ').)*)(?:' + last_call + ')?' + end, string)).group(1)
+        _status = Status.from_string(string) or Status(status_fmt_datetime, clock.time())
+        string = must(re.match('^((?:(?!' + status + ').)*)(?:' + status + ')?' + end, string)).group(1)
         # pyrefly: ignore[bad-argument-type]
-        return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [_last_call, clock]))
+        return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [_status, clock]))
 
     def __str__(self) -> str:
-        return self.__original_string + ' #' + self.__last_call.__str__()
+        return self.__original_string + ' #' + self.__status.__str__()
 
     def is_skipped(self) -> bool:
-        __last_call = self.__last_call.datetime if self.__last_call else self.__creation_time
+        __last_call = self.__status.alive_at or self.__status.called_at
         return __last_call < self.__expected_last_call()
 
     def calls(self, _from: datetime, _to: datetime) -> list[datetime]:
         _calls = []
-        _from = max(_from, self.__last_call.datetime + timedelta(microseconds=1)) if self.__last_call else _from
+        _from = max(_from, self.__status.called_at + timedelta(microseconds=1)) if self.__status else _from
         year = Task.__year_start(_from)
         while True:
             for month in self.__months:  # todo: refactor
@@ -212,16 +227,19 @@ class Task:
 
     def execute(self) -> None:
         if self.__get_running_process():
+            self.__status.alive_at = self.__clock.time()
             return
         self.__run()
-        self.__set_last_call(self.__clock.time())
+        self.__set_called_at(self.__clock.time())
+        self.__status.alive_at = None
 
     def equals(self, other: Task) -> bool:  # todo: cover with test
         return self.__original_string == other.__original_string
 
-    def copy_last_call(self, other: Task) -> None:
-        if self.__last_call.is_less(other.__last_call):
-            self.__set_last_call(other.__last_call.datetime)
+    def copy_status(self, other: Task) -> None:
+        if self.__status.is_less(other.__status):
+            self.__set_called_at(other.__status.called_at)
+            self.__status.alive_at = other.__status.alive_at
 
     @staticmethod
     def __values(value: str, _min: int, _max: int) -> list[int]:
@@ -289,8 +307,8 @@ class Task:
         except Exception as exception:
             alert(exception)
 
-    def __set_last_call(self, _datetime: datetime) -> None:
-        self.__last_call.datetime = _datetime
+    def __set_called_at(self, _datetime: datetime) -> None:
+        self.__status.called_at = _datetime
 
     def __get_running_process(self) -> Union[subprocess.Popen, None]:
         if self.__process and self.__process.poll() is not None:
@@ -427,17 +445,16 @@ class Cronus:
             except Exception as exception:
                 alert(exception)
 
+        old_tasks = list(self.__tasks.values())
         updated_tasks: dict[int, Task] = {}
         for new_task_id, new_task in new_tasks.items():
-            if new_task_id in self.__tasks:
-                old_task = self.__tasks[new_task_id]
+            for old_task in old_tasks:
                 if new_task.equals(old_task):
-                    old_task.copy_last_call(new_task)
-                    updated_tasks[new_task_id] = old_task
-                else:
-                    updated_tasks[new_task_id] = new_task
-            else:
-                updated_tasks[new_task_id] = new_task
+                    old_tasks.remove(old_task)
+                    old_task.copy_status(new_task)
+                    new_task = old_task
+                    break
+            updated_tasks[new_task_id] = new_task
         self.__tasks = updated_tasks
 
         self.__next_events = []
