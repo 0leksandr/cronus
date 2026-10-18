@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
-from typing import Union, IO, Optional
+from typing import Union, IO, Optional, TypeVar
 import calendar
 import gc
 import os
@@ -49,6 +49,12 @@ def alert(error: str | BaseException) -> None:
         filename = os.path.split(_traceback.tb_frame.f_code.co_filename)[1]
         error += f" at {filename}:{_traceback.tb_lineno}"
     subprocess.call(f"alert \"{Cronus.__name__}: {error}\"", shell=True)
+
+
+T = TypeVar('T')
+def must(a: Optional[T]) -> T:
+    assert a is not None
+    return a
 
 
 class Clock:
@@ -163,8 +169,8 @@ class Task:
         if len(groups) != last_call_idx + 1:
             raise Exception('Task parsed incorrectly')
         _last_call = LastCall.from_string(string) or LastCall(clock.time(), last_call_fmt_datetime)
-        string = re.match('^((?:(?!' + last_call + ').)*)(?:' + last_call + ')?' + end, string).group(1)
-        # noinspection PyTypeChecker
+        string = must(re.match('^((?:(?!' + last_call + ').)*)(?:' + last_call + ')?' + end, string)).group(1)
+        # pyrefly: ignore[bad-argument-type]
         return Task(*([string] + [group.strip() for group in list(groups[:-1])] + [_last_call, clock]))
 
     def __str__(self) -> str:
@@ -238,10 +244,10 @@ class Task:
                 elif value[:2] == '*/':
                     values += [v for v in _range if v % int(value[2:]) == 0]
                 elif match := re.search('(\\d+)-(\\d+)', value):
-                    value = [int(v) for v in match.groups()]
-                    if value[1] <= value[0]:
+                    ints: list[int] = [int(v) for v in match.groups()]
+                    if ints[1] <= ints[0]:
                         raise Exception('Incorrect bounds')
-                    values += list(range(value[0], value[1] + 1))
+                    values += list(range(ints[0], ints[1] + 1))
                 else:
                     raise Exception('Unknown format')
         return values
@@ -349,9 +355,8 @@ class Cronus:
         self.__sleep_interval_seconds = sleep_interval_seconds
         self.__filename = filename
         self.__file_watching_queue = queue.Queue()
-        self.__time = \
-            self.__checkpoint = \
-            self.__mtime = None
+        self.__time: Optional[datetime] = None
+        self.__checkpoint: Optional[datetime] = None
 
     def __del__(self) -> None:
         self.__write()
@@ -408,11 +413,11 @@ class Cronus:
                 self.__del__()
                 raise
             finally:
+                # noinspection unused-local
                 next_event = task = None  # Release references to old tasks so their __del__ can run
 
     def __read(self) -> None:
         new_tasks: dict[int, Task] = {}
-        self.__mtime = os.path.getmtime(self.__filename)
         with open(self.__filename, 'r') as file:
             self.__lines = file.readlines()
         for task_id in range(len(self.__lines)):
@@ -452,7 +457,6 @@ class Cronus:
 
                 self.__clear_file_changes_queue()
                 self.__lines = new_lines
-                self.__mtime = os.path.getmtime(self.__filename)
             self.__checkpoint = self.__time
 
     def __run_skipped(self) -> None:
@@ -464,13 +468,14 @@ class Cronus:
         while not self.__next_events:
             self.__next_events = self.__determine_next_events()
             if not self.__next_events:
-                self.__wait(self.__time + self.__queue_interval)
+                self.__wait(must(self.__time) + self.__queue_interval)
         return self.__next_events.pop(0)
 
     def __determine_next_events(self) -> list[Event]:  # TODO: simplify (remove useless cycles)
         next_events_dic = {}
+        _time = must(self.__time)
         for task_id, task in self.__tasks.items():
-            next_events_dic[task_id] = task.calls(self.__time, self.__time + self.__queue_interval)
+            next_events_dic[task_id] = task.calls(_time, _time + self.__queue_interval)
         next_events_list = []
         while True:
             next_events_dic = {k: v for k, v in next_events_dic.items() if v}
@@ -489,20 +494,20 @@ class Cronus:
 
     def __last_checkpoint(self) -> datetime:
         return datetime.fromtimestamp(
-            int(self.__time.timestamp() / self.__saving_interval.total_seconds())
+            int(must(self.__time).timestamp() / self.__saving_interval.total_seconds())
             * self.__saving_interval.total_seconds())
 
     def __wait(self, until: datetime) -> None:
-        next_checkpoint = self.__checkpoint + self.__saving_interval
+        next_checkpoint = must(self.__checkpoint) + self.__saving_interval
         if next_checkpoint < until:
             self.__write()
         self.__sleep(until)
         self.__time = until
 
     def __sleep(self, until: datetime) -> None:
-        until = until.timestamp()
+        _float: float = until.timestamp()
         while True:
-            seconds_to_event = until - self.__clock.time().timestamp()
+            seconds_to_event = _float - self.__clock.time().timestamp()
             if seconds_to_event > 0:
                 self.__watch_file(min((seconds_to_event, self.__sleep_interval_seconds)))
             else:

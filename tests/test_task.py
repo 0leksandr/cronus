@@ -7,12 +7,12 @@ from typing import Generator, Optional
 import time
 import unittest
 
-from cronus import Task, Clock
+from cronus import Task, Clock, must
 
 
 class MockClock(Clock):
-    def __init__(self, time: datetime):
-        self.__time = time
+    def __init__(self, _time: datetime):
+        self.__time = _time
 
     def time(self):
         return self.__time
@@ -191,37 +191,37 @@ class TestTask(unittest.TestCase):
 
     @data_provider(skipped_provider)
     def test_skipped(self, task: str, now: str, expected_last_call: str) -> None:
-        now = parse(now)
-        expected_last_call = parse(expected_last_call)
-        assert self\
-            .__task(task, True, expected_last_call - timedelta(microseconds=1), now)\
+        now_datetime = parse(now)
+        expected_last_call_datetime = parse(expected_last_call)
+        assert self \
+            .__task(task, True, expected_last_call_datetime - timedelta(microseconds=1), now_datetime) \
             .is_skipped()
-        assert not self.__task(task, True, expected_last_call, now).is_skipped()
+        assert not self.__task(task, True, expected_last_call_datetime, now_datetime).is_skipped()
 
     @data_provider(calls_provider)
     def test_calls(self, task: str, last_call: str, _from: str, _to: str, expected_calls: dict) -> None:
         if not last_call:
             last_call = '2000-01-01 00:00:00'
-        task = Task.from_string(task + ' ' + self.__command + '  #' + last_call, Clock())
-        calls = task.calls(parse(_from), parse(_to))
+        _task = must(Task.from_string(task + ' ' + self.__command + '  #' + last_call, Clock()))
+        calls = _task.calls(parse(_from), parse(_to))
         assert len(calls) == (max(expected_calls.keys()) + 1 if expected_calls else 0)
         for i, v in expected_calls.items():
             assert calls[i] == parse(v)
 
     @data_provider(to_string_provider)
     def test_converting_to_string(self, original: str, _datetime: datetime, execute: bool, expected: str) -> None:
-        task = Task.from_string(original, MockClock(_datetime))
+        task = must(Task.from_string(original, MockClock(_datetime)))
         if execute:
             task.execute()
             time.sleep(0.05)
         assert str(task) == expected
 
     def __task(self,
-               time: str,
+               _time: str,
                command: bool = True,
                last_call: Optional[datetime] = None,
                now: Optional[datetime] = None) -> Task:
-        string = time
+        string = _time
         if command:
             string += ' ' + self.__command
         if last_call:
