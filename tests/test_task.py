@@ -7,15 +7,7 @@ from typing import Generator, Optional
 import time
 import unittest
 
-from cronus import Task, Clock, must
-
-
-class MockClock(Clock):
-    def __init__(self, _time: datetime):
-        self.now = _time
-
-    def time(self):
-        return self.now
+from cronus import Task, must
 
 
 class TestTask(unittest.TestCase):
@@ -159,7 +151,7 @@ class TestTask(unittest.TestCase):
         _time = '* * * * * * '
         for command in self.correct_commands:
             __timestamp_ = ' #' + str(int(parse('2017-11-16 23:59:59').timestamp()))
-            for vv in (
+            for original_last_call, date, execute, expected in (
                     ('',                      '2017-11-16 23:59:59', False, ' #2017-11-16 23:59:59'),
                     (' #123',                 '2017-11-16 23:59:59', False, ' #123'                ),
                     (' #2016-10-04 17:18:24', '2017-11-16 23:59:59', False, ' #2016-10-04 17:18:24'),
@@ -169,42 +161,38 @@ class TestTask(unittest.TestCase):
                     (' #123 | 456',           '2017-11-16 23:59:59', False, ' #123 | 456'          ),
                     (' #123 | 456',           '2017-11-16 23:59:59', True,  __timestamp_           ),
             ):
-                original_last_call = vv[0]
-                date = parse(vv[1])
-                execute = vv[2]
-                expected = vv[3]
                 yield (_time + command + original_last_call,
-                       date,
+                       parse(date),
                        execute,
                        _time + command + expected)
 
     @data_provider(correct_strings)
     def test_creating_from_correct_string(self, string: str) -> None:
-        assert Task.from_string(string, Clock()) is not None
+        assert Task.from_string(string, datetime.now()) is not None
 
     @data_provider(empty_strings)
     def test_not_creating_from_empty_string(self, string: str) -> None:
-        assert Task.from_string(string, Clock()) is None
+        assert Task.from_string(string, datetime.now()) is None
 
     @data_provider(incorrect_strings)
     def test_throwing_exception_on_incorrect_string(self, string: str) -> None:
         with self.assertRaises(Exception):
-            Task.from_string(string, Clock())
+            Task.from_string(string, datetime.now())
 
     @data_provider(skipped_provider)
     def test_skipped(self, task: str, now: str, expected_last_call: str) -> None:
         now_datetime = parse(now)
         expected_last_call_datetime = parse(expected_last_call)
         assert self \
-            .__task(task, True, expected_last_call_datetime - timedelta(microseconds=1), now_datetime) \
-            .is_skipped()
-        assert not self.__task(task, True, expected_last_call_datetime, now_datetime).is_skipped()
+            .__task(task, True, expected_last_call_datetime - timedelta(microseconds=1)) \
+            .is_skipped(now_datetime)
+        assert not self.__task(task, True, expected_last_call_datetime).is_skipped(now_datetime)
 
     @data_provider(calls_provider)
-    def test_calls(self, task: str, last_call: str, _from: str, _to: str, expected_calls: dict) -> None:
+    def test_calls(self, task: str, last_call: str, _from: str, _to: str, expected_calls: dict[int, str]) -> None:
         if not last_call:
             last_call = '2000-01-01 00:00:00'
-        _task = must(Task.from_string(task + ' ' + self.__command + '  #' + last_call, Clock()))
+        _task = must(Task.from_string(task + ' ' + self.__command + '  #' + last_call, datetime.now()))
         calls = _task.calls(parse(_from), parse(_to))
         assert len(calls) == (max(expected_calls.keys()) + 1 if expected_calls else 0)
         for i, v in expected_calls.items():
@@ -212,37 +200,34 @@ class TestTask(unittest.TestCase):
 
     @data_provider(to_string_provider)
     def test_converting_to_string(self, original: str, _datetime: datetime, execute: bool, expected: str) -> None:
-        task = must(Task.from_string(original, MockClock(_datetime)))
+        task = must(Task.from_string(original, _datetime))
         if execute:
-            task.execute()
+            task.execute(_datetime)
             time.sleep(0.05)
         assert str(task) == expected
 
     def test_call_dropped_while_running_is_not_skipped(self) -> None:
-        clock = MockClock(parse('2017-11-16 10:00:00'))
-        task = must(Task.from_string('* * * * * 0 sleep 1 #2000-01-01 00:00:00', clock))
-        task.execute()
-        clock.now = parse('2017-11-16 10:01:00')
-        task.execute()  # still running: the call is dropped
+        now = parse('2017-11-16 10:00:00')
+        task = must(Task.from_string('* * * * * 0 sleep 1 #2000-01-01 00:00:00', now))
+        task.execute(now)
+        now = parse('2017-11-16 10:01:00')
+        task.execute(now)  # still running: the call is dropped
         assert str(task) == '* * * * * 0 sleep 1 #2017-11-16 10:00:00 | 2017-11-16 10:01:00'
         time.sleep(1.2)  # let the process finish
-        clock.now = parse('2017-11-16 10:01:30')
-        assert not task.is_skipped()
-        restarted = must(Task.from_string(str(task), clock))  # state survives a daemon restart
-        assert not restarted.is_skipped()
-        clock.now = parse('2017-11-16 10:02:30')
-        assert restarted.is_skipped()
+        now = parse('2017-11-16 10:01:30')
+        assert not task.is_skipped(now)
+        restarted = must(Task.from_string(str(task), now))  # state survives a daemon restart
+        assert not restarted.is_skipped(now)
+        now = parse('2017-11-16 10:02:30')
+        assert restarted.is_skipped(now)
 
     def __task(self,
                _time: str,
                command: bool = True,
-               last_call: Optional[datetime] = None,
-               now: Optional[datetime] = None) -> Task:
+               last_call: Optional[datetime] = None) -> Task:
         string = _time
         if command:
             string += ' ' + self.__command
         if last_call:
             string += ' #' + str(int(last_call.timestamp()))
-        task = Task.from_string(string, MockClock(now) if now else Clock())
-        self.assertIsNotNone(task)
-        return task
+        return must(Task.from_string(string, datetime.now()))

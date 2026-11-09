@@ -8,7 +8,9 @@ import threading
 import time
 import os
 
-from cronus import Cronus, Clock
+from cronus import Cronus, Clock, Crontab, CrontabStore
+import file_watcher
+import instance_lock
 
 
 sandbox_dir = os.path.abspath('__sandbox')
@@ -18,6 +20,7 @@ sandbox = sandbox_dir + '/sandbox'
 time_format = '%Y-%m-%d %H:%M:%S'
 time_format_full = time_format + '.%f'
 stop = False
+daemon_thread: threading.Thread | None = None
 
 
 class MockClock(Clock):
@@ -179,9 +182,14 @@ class TestCronus(unittest.TestCase):
         # cronus_time.assert_called_once_with()
         # unittest.mock.MagicMock()
         # with freeze_time(lambda: self.__time()):  # todo: replace with self.__time ?
+        global daemon_thread
+        if daemon_thread:
+            daemon_thread.join(10)  # the previous instance must release the crontab lock first
+            assert not daemon_thread.is_alive()
         thread = threading.Thread(target=self.__run_daemon)
         thread.daemon = True
         thread.start()
+        daemon_thread = thread
         return thread
 
     @staticmethod
@@ -189,7 +197,13 @@ class TestCronus(unittest.TestCase):
         global stop
         stop = False
         try:
-            Cronus(crontab, MockClock(), 0.01).run()
+            (Cronus(Crontab(crontab,
+                            lambda path: file_watcher.PollingWatcher(path, 0.01),
+                            CrontabStore,
+                            instance_lock.FlockLock),
+                    MockClock(),
+                    0.01)
+             .run())
         except SystemExit:
             pass
 
